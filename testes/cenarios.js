@@ -307,7 +307,8 @@ function avaliar(Encaixe, c, opcoes = {}) {
   // mínimo de filme possível: área das artes engordadas em 2 mm (o espaço obrigatório entre elas)
   // dividida pela largura (+2 mm de cada lado, onde a engorda pode sobrar para fora)
   const areaEsp = c.artes.reduce((s, a) => s + a.areaComEspaco * a.qtd, 0);
-  const minimo = Math.max(areaEsp / (LARGURA_UTIL + 4), ...c.artes.map((a) => Math.min(a.dw, a.dh)));
+  // (arte que o halftone deixou sem nenhum ponto não entra na conta do lado mínimo)
+  const minimo = Math.max(areaEsp / (LARGURA_UTIL + 4), ...c.artes.filter((a) => a.dw > 0 && a.dh > 0).map((a) => Math.min(a.dw, a.dh)));
   // fila com uma pequena no fim: quanto a folha cresceu por causa dela (0 = achou um buraco)
   let aumentou = null;
   if (c.artes.some((a) => a.ultimaPequena)) {
