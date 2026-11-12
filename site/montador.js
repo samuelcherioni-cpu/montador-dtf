@@ -148,6 +148,50 @@
     otimizando = ativos > 0;
   }
 
+
+  // Miolo fechado (o meio de um círculo, de um anel, de uma moldura) conta como ocupado: nada pode ser
+  // encaixado lá dentro, porque não daria para recortar uma arte separada da outra. Vãos abertos para
+  // fora (o meio de um "U", o canto entre um rosto e um raio) continuam livres.
+  // cheio: Uint8Array cols x linhas (1 = tem desenho). Falhas de até ~4 mm no contorno contam como fechadas.
+  function fecharMiolo(cheio, cols, linhas) {
+    const R = 2, N = cols * linhas;
+    // 1) contorno engordado em R (para tapar falhas pequenas)
+    const tmp = new Uint8Array(N), gordo = new Uint8Array(N);
+    for (let y = 0; y < linhas; y++) {
+      let ult = -1e9; for (let x = 0; x < cols; x++) { if (cheio[y * cols + x]) ult = x; if (x - ult <= R) tmp[y * cols + x] = 1; }
+      ult = 1e9; for (let x = cols - 1; x >= 0; x--) { if (cheio[y * cols + x]) ult = x; if (ult - x <= R) tmp[y * cols + x] = 1; }
+    }
+    for (let x = 0; x < cols; x++) {
+      let ult = -1e9; for (let y = 0; y < linhas; y++) { if (tmp[y * cols + x]) ult = y; if (y - ult <= R) gordo[y * cols + x] = 1; }
+      ult = 1e9; for (let y = linhas - 1; y >= 0; y--) { if (tmp[y * cols + x]) ult = y; if (ult - y <= R) gordo[y * cols + x] = 1; }
+    }
+    // 2) tudo que é alcançável pelo lado de fora (a partir da borda da caixa) sem atravessar o contorno
+    const fora = new Uint8Array(N), fila = new Int32Array(N);
+    let ini = 0, fim = 0;
+    const entra = (i) => { if (!gordo[i] && !fora[i]) { fora[i] = 1; fila[fim++] = i; } };
+    for (let x = 0; x < cols; x++) { entra(x); entra((linhas - 1) * cols + x); }
+    for (let y = 0; y < linhas; y++) { entra(y * cols); entra(y * cols + cols - 1); }
+    while (ini < fim) {
+      const i = fila[ini++], x = i % cols;
+      if (x > 0) entra(i - 1); if (x < cols - 1) entra(i + 1);
+      if (i >= cols) entra(i - cols); if (i < N - cols) entra(i + cols);
+    }
+    // 3) devolve ao lado de fora a faixa de R junto do contorno (só serviu para tapar as falhas)
+    let borda = fora;
+    for (let k = 0; k < R; k++) {
+      const nova = borda.slice();
+      for (let i = 0; i < N; i++) {
+        if (borda[i] || cheio[i]) continue;
+        const x = i % cols;
+        if ((x > 0 && borda[i - 1]) || (x < cols - 1 && borda[i + 1]) || (i >= cols && borda[i - cols]) || (i < N - cols && borda[i + cols])) nova[i] = 1;
+      }
+      borda = nova;
+    }
+    // 4) o que não é desenho nem lado de fora é miolo fechado: passa a contar como ocupado
+    for (let i = 0; i < N; i++) if (!cheio[i] && !borda[i]) cheio[i] = 1;
+    return cheio;
+  }
+
   // Formato real da arte: em cada linha de 1 mm, onde começa e termina a parte não transparente.
   // Fica guardado até a arte mudar de tamanho.
   function perfis(a) {
@@ -164,6 +208,9 @@
       girarContexto(ctx, rot, cols, linhas);
       ctx.drawImage(a.mini, 0, 0, a.w / C, a.h / C);
       const d = ctx.getImageData(0, 0, cols, linhas).data;
+      const cheio = new Uint8Array(cols * linhas);
+      for (let i = 0; i < cheio.length; i++) cheio[i] = d[i * 4 + 3] > 6 ? 1 : 0;
+      fecharMiolo(cheio, cols, linhas);
       // cada linha guarda todos os trechos com desenho; buracos de até 3 mm são tratados como cheios
       // (não cabe nada neles e deixa o encaixe mais rápido)
       const spans = new Array(linhas);
@@ -171,10 +218,10 @@
         const t = [];
         let x = 0;
         while (x < cols) {
-          while (x < cols && d[(y * cols + x) * 4 + 3] <= 6) x++;
+          while (x < cols && !cheio[y * cols + x]) x++;
           if (x >= cols) break;
           const a0 = x;
-          while (x < cols && d[(y * cols + x) * 4 + 3] > 6) x++;
+          while (x < cols && cheio[y * cols + x]) x++;
           if (t.length && a0 - t[t.length - 1] <= 3) t[t.length - 1] = x;
           else t.push(a0, x);
         }
@@ -561,7 +608,7 @@
         ? `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px;transform:${gir}">`
         : `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px">`;
       const cls = 'peca' + (est.sel.has(p.id) ? ' sel' : '') + (ruins.has(p.id) ? ' ruim' : '');
-      html += `<div class="${cls}" data-peca="${p.id}" style="left:${p.x * s}px;top:${p.y * s}px;width:${m.w * s}px;height:${m.h * s}px" title="${esc(a.nome)} · ${cm(m.w)} × ${cm(m.h)} cm">${img}</div>`;
+      html += `<div class="${cls}" data-peca="${p.id}" style="left:${p.x * s}px;top:${p.y * s}px;width:${m.w * s}px;height:${m.h * s}px" title="${esc(a.nome)} · ${cm(m.w)} × ${cm(m.h)} cm · clique para mudar de lugar">${img}</div>`;
     }
     if (est.ident) {
       const t = IDENT_MM * 0.75 * s;
@@ -596,7 +643,53 @@
   }
   function areaPecas() { return est.pecas.reduce((s, p) => s + perfis(arteDe(p.arte)).area, 0); }
 
-  // A folha é só para ver: quem posiciona as artes é o sistema (sem arrastar à mão).
+  // A folha não aceita arrastar: quem posiciona é o sistema. Mas clicar numa arte manda o sistema
+  // levá-la para outro lugar (o primeiro espaço livre fora de onde ela está). Serve, por exemplo,
+  // quando ela caiu num lugar ruim de recortar.
+  function mudarDeLugar(p) {
+    pararOtimizacao();
+    const g = desenho(p);
+    const pedido = pedidoDeEncaixe(est.pecas);
+    const colocadas = pedido.filter((n) => n.id !== p.id).map((n) => {
+      const q = est.pecas.find((x) => x.id === n.id);
+      return { n, pos: { x: q.x - est.margem, y: q.y - est.margem, rot: q.rot } };
+    });
+    const fundoAntes = comprimento();
+    const r = Encaixe.acrescentar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, colocadas,
+      novas: pedido.filter((n) => n.id === p.id),
+      bloqueios: [{ x: g.x0 - est.margem, y: g.y0 - est.margem, w: g.x1 - g.x0, h: g.y1 - g.y0 }] });
+    if (r.fora.length) { avisar('Não há outro lugar para essa arte no filme.', true); return; }
+    aplicar(r.pos);
+    esquecerAnterior();
+    desenhar();
+    desenharLista();
+    avisar(comprimento() > fundoAntes ? 'Arte mudou de lugar. Não havia espaço livre no meio: ela foi para o fim.' : 'Arte mudou de lugar.');
+  }
+  // As caixas das artes se cruzam nas partes transparentes: vale a arte que tem desenho no ponto clicado
+  // (com 3 mm de tolerância), não a caixa que está por cima.
+  function pecaNoPonto(xmm, ymm) {
+    let melhor = null, dist = 4, areaMelhor = Infinity;
+    for (const p of est.pecas) {
+      const area = arteDe(p.arte).w * arteDe(p.arte).h;
+      const pf = perfis(arteDe(p.arte))[p.rot], C = Encaixe.CELULA;
+      const cx = (xmm - p.x) / C, cy = Math.floor((ymm - p.y) / C);
+      for (let dy = -3; dy <= 3; dy++) {
+        const t = pf.spans[cy + dy];
+        if (!t) continue;
+        for (let k = 0; k < t.length; k += 2) {
+          const d = Math.max(Math.abs(dy), cx < t[k] ? t[k] - cx : cx >= t[k + 1] ? cx - t[k + 1] + 1 : 0);
+          // empate (ex.: logo dentro do miolo de outra arte): vale a menor, que é a que se quer mexer
+          if (d < dist || (d === dist && area < areaMelhor)) { dist = d; melhor = p; areaMelhor = area; }
+        }
+      }
+    }
+    return melhor;
+  }
+  $('filme').addEventListener('click', (e) => {
+    const f = $('filme').getBoundingClientRect(), s = escala();
+    const p = pecaNoPonto((e.clientX - f.left) / s, (e.clientY - f.top) / s);
+    if (p) mudarDeLugar(p);
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('modalBaixar').hidden) fecharModal();
   });

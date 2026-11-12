@@ -123,7 +123,57 @@ function girar90(G) { // horário, como na tela
   return N;
 }
 
+
+  // Miolo fechado (o meio de um círculo, de um anel, de uma moldura) conta como ocupado: nada pode ser
+  // encaixado lá dentro, porque não daria para recortar uma arte separada da outra. Vãos abertos para
+  // fora (o meio de um "U", o canto entre um rosto e um raio) continuam livres.
+  // cheio: Uint8Array cols x linhas (1 = tem desenho). Falhas de até ~4 mm no contorno contam como fechadas.
+  function fecharMiolo(cheio, cols, linhas) {
+    const R = 2, N = cols * linhas;
+    // 1) contorno engordado em R (para tapar falhas pequenas)
+    const tmp = new Uint8Array(N), gordo = new Uint8Array(N);
+    for (let y = 0; y < linhas; y++) {
+      let ult = -1e9; for (let x = 0; x < cols; x++) { if (cheio[y * cols + x]) ult = x; if (x - ult <= R) tmp[y * cols + x] = 1; }
+      ult = 1e9; for (let x = cols - 1; x >= 0; x--) { if (cheio[y * cols + x]) ult = x; if (ult - x <= R) tmp[y * cols + x] = 1; }
+    }
+    for (let x = 0; x < cols; x++) {
+      let ult = -1e9; for (let y = 0; y < linhas; y++) { if (tmp[y * cols + x]) ult = y; if (y - ult <= R) gordo[y * cols + x] = 1; }
+      ult = 1e9; for (let y = linhas - 1; y >= 0; y--) { if (tmp[y * cols + x]) ult = y; if (ult - y <= R) gordo[y * cols + x] = 1; }
+    }
+    // 2) tudo que é alcançável pelo lado de fora (a partir da borda da caixa) sem atravessar o contorno
+    const fora = new Uint8Array(N), fila = new Int32Array(N);
+    let ini = 0, fim = 0;
+    const entra = (i) => { if (!gordo[i] && !fora[i]) { fora[i] = 1; fila[fim++] = i; } };
+    for (let x = 0; x < cols; x++) { entra(x); entra((linhas - 1) * cols + x); }
+    for (let y = 0; y < linhas; y++) { entra(y * cols); entra(y * cols + cols - 1); }
+    while (ini < fim) {
+      const i = fila[ini++], x = i % cols;
+      if (x > 0) entra(i - 1); if (x < cols - 1) entra(i + 1);
+      if (i >= cols) entra(i - cols); if (i < N - cols) entra(i + cols);
+    }
+    // 3) devolve ao lado de fora a faixa de R junto do contorno (só serviu para tapar as falhas)
+    let borda = fora;
+    for (let k = 0; k < R; k++) {
+      const nova = borda.slice();
+      for (let i = 0; i < N; i++) {
+        if (borda[i] || cheio[i]) continue;
+        const x = i % cols;
+        if ((x > 0 && borda[i - 1]) || (x < cols - 1 && borda[i + 1]) || (i >= cols && borda[i - cols]) || (i < N - cols && borda[i + cols])) nova[i] = 1;
+      }
+      borda = nova;
+    }
+    // 4) o que não é desenho nem lado de fora é miolo fechado: passa a contar como ocupado
+    for (let i = 0; i < N; i++) if (!cheio[i] && !borda[i]) cheio[i] = 1;
+    return cheio;
+  }
+
 function perfil(G) {
+  // miolo fechado conta como ocupado (como na tela); a área conta só o desenho de verdade
+  let areaReal = 0; for (let i = 0; i < G.g.length; i++) areaReal += G.g[i];
+  G = { ...G, g: fecharMiolo(G.g.slice(), G.cols, G.linhas) };
+  return { ...perfilCheio(G), area: areaReal };
+}
+function perfilCheio(G) {
   const spans = new Array(G.linhas);
   let area = 0;
   for (let y = 0; y < G.linhas; y++) {

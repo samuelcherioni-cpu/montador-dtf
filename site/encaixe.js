@@ -300,7 +300,8 @@
   // primeiro espaço livre em que terminar mais em cima, em qualquer giro. Usado quando alguém adiciona
   // uma arte: se ela couber num buraco (no começo, no meio ou no fim), a folha não cresce.
   // colocadas: [{ n, pos: {x, y, rot} }] (mm); novas: peças como em encaixar()
-  function acrescentar({ largura, espaco = 5, girar = true, colocadas, novas }) {
+  // bloqueios: [{x, y, w, h}] (mm) que ninguém pode usar (ex.: o lugar de onde a peça está saindo)
+  function acrescentar({ largura, espaco = 5, girar = true, colocadas, novas, bloqueios = [] }) {
     const colunas = Math.floor(largura / CELULA + 1e-6);
     const d = Math.max(0, Math.ceil(espaco / CELULA - 1e-6));
     const filme = new Filme(colunas);
@@ -313,6 +314,10 @@
       pos[n.id] = { x: x * CELULA, y: y * CELULA, rot: q.rot };
       fundo = Math.max(fundo, (y + p.ultima + 1) * CELULA);
       soma += (y + p.ultima + 1) * 4096 + x;
+    }
+    for (const b of bloqueios) {
+      const x0 = Math.floor(b.x / CELULA), y0 = Math.floor(b.y / CELULA);
+      filme.ocupar(perfilRetangulo(Math.ceil((b.x + b.w) / CELULA) - x0, Math.ceil((b.y + b.h) / CELULA) - y0), x0, Math.max(0, y0));
     }
     const fora = [];
     // as maiores primeiro (as pequenas acham buraco depois)
