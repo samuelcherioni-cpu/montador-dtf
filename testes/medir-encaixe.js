@@ -14,7 +14,7 @@ if (!isMainThread) {
   // --ms auto: o mesmo tempo que a tela dá ao trabalhador (de 2 a 8 s, conforme o número de peças)
   const tempo = (c) => { if (workerData.ms !== 'auto') return Number(workerData.ms); const n = c.artes.reduce((s, a) => s + a.qtd, 0); return Math.min(8000, Math.max(2000, 1500 + n * 40)); };
   for (let i = workerData.inicio; i < workerData.n; i += workerData.passo) {
-    const c = gerarCenario(i, workerData.semente); // gera, mede e descarta: memória baixa
+    const c = gerarCenario(i, workerData.semente, workerData.conjunto); // gera, mede e descarta: memória baixa
     saida.push(avaliar(Encaixe, c, { limiteMs: tempo(c) }));
   }
   parentPort.postMessage(saida);
@@ -25,12 +25,13 @@ const arg = (nome, padrao) => { const i = process.argv.indexOf('--' + nome); ret
 const n = Number(arg('n', 1000)), ms = arg('ms', '500'), semente = Number(arg('semente', 1));
 const encaixe = path.resolve(arg('encaixe', path.join(__dirname, '..', 'site', 'encaixe.js')));
 const saidaArq = arg('saida', null);
+const conjunto = arg('conjunto', 'geral');
 // --nucleos: quantos núcleos usar (padrão: metade dos que existem, para o computador continuar usável)
 const passo = Math.max(1, Number(arg('nucleos', Math.floor(os.cpus().length / 2))));
 
 const inicio = Date.now();
 Promise.all(Array.from({ length: passo }, (_, k) => new Promise((ok, falha) => {
-  const w = new Worker(__filename, { workerData: { n, ms, semente, encaixe, inicio: k, passo } });
+  const w = new Worker(__filename, { workerData: { n, ms, semente, encaixe, inicio: k, passo, conjunto } });
   w.once('message', ok);
   w.once('error', falha);
 }))).then((partes) => {
@@ -38,12 +39,18 @@ Promise.all(Array.from({ length: passo }, (_, k) => new Promise((ok, falha) => {
   const porTipo = {};
   for (const r of res) (porTipo[r.tipo] = porTipo[r.tipo] || []).push(r);
   const media = (l, f) => l.reduce((s, x) => s + f(x), 0) / l.length;
-  console.log(`${res.length} cenários, ${(media(res, (r) => r.pecas)).toFixed(0)} peças em média, ${((Date.now() - inicio) / 1000).toFixed(0)} s`);
+  console.log(`[${conjunto}] ${res.length} cenários, ${(media(res, (r) => r.pecas)).toFixed(0)} peças em média, ${((Date.now() - inicio) / 1000).toFixed(0)} s`);
   console.log('tipo de fila                aproveit.  folga   pior folga');
   for (const [tipo, l] of Object.entries(porTipo)) {
     console.log(`${tipo.padEnd(26)} ${(media(l, (r) => r.aproveitamento) * 100).toFixed(1).padStart(6)}%  ${media(l, (r) => r.folga).toFixed(3)}  ${Math.max(...l.map((r) => r.folga)).toFixed(3)}`);
   }
   console.log(`${'TODOS'.padEnd(26)} ${(media(res, (r) => r.aproveitamento) * 100).toFixed(1).padStart(6)}%  ${media(res, (r) => r.folga).toFixed(3)}`);
+  const ultimas = res.filter((r) => r.aumentou !== null);
+  if (ultimas.length) {
+    const cresceu = ultimas.filter((r) => r.aumentou > 0);
+    console.log(`pequena por último: em ${ultimas.length - cresceu.length} de ${ultimas.length} filas ela coube num buraco sem aumentar a folha` +
+      (cresceu.length ? `; nas outras a folha cresceu em média ${(media(cresceu, (r) => r.aumentou) / 10).toFixed(1)} cm (pior ${(Math.max(...cresceu.map((r) => r.aumentou)) / 10).toFixed(1)} cm)` : ''));
+  }
   const erros = res.filter((r) => r.erro || r.fora);
   console.log(`erros: ${erros.length}` + (erros.length ? ' -> ' + erros.slice(0, 5).map((r) => `#${r.id} ${r.erro || r.fora + ' de fora'}`).join('; ') : ''));
   const piores = [...res].sort((a, b) => b.folga - a.folga).slice(0, 8);

@@ -164,6 +164,10 @@
     }
   }
 
+  // Giros que a peça aceita: em pé (0), deitada (90), de cabeça para baixo (180) e deitada para o outro
+  // lado (270). A estampa sai igual; só muda a posição no filme. Espelhar nunca (inverteria a estampa).
+  const giros = (n) => (n.perfis[180] ? [0, 90, 180, 270] : [0, 90]);
+
   // largura e espaco em mm; novas: [{id, w, h, rot, fixo, perfis: {0: perfil, 90: perfil}}]
   // perfil: {cols, linhas, L, R} em células de 1 mm, da caixa da arte já no giro indicado
   // jeito.giro: 'livre' (cada cópia escolhe), 'em-pe' (só gira se não couber) ou 'deitado' (gira sempre que couber)
@@ -181,10 +185,12 @@
       const daForma = jeito.porForma && jeito.porForma.get(n.forma || n.id);
       if (!girar || n.fixo) opcoes = [n.rot];
       else if (daForma !== undefined && daForma !== 'livre' && largDesenho(n.perfis[daForma]) <= colunas) opcoes = [daForma];
-      else if (jeito.giro === 'livre' || daForma === 'livre') opcoes = [0, 90];
+      else if (jeito.giro === 'livre' || daForma === 'livre') opcoes = giros(n);
       else {
-        const pref = jeito.giro === 'deitado' ? 90 : 0, outro = pref ? 0 : 90;
-        opcoes = largDesenho(n.perfis[pref]) <= colunas ? [pref] : [outro];
+        // em pé = 0 ou 180; deitada = 90 ou 270 (se não couber, vai do outro jeito)
+        const deit = giros(n).filter((g) => g % 180), pe = giros(n).filter((g) => !(g % 180));
+        const pref = jeito.giro === 'deitado' ? deit : pe, outro = jeito.giro === 'deitado' ? pe : deit;
+        opcoes = largDesenho(n.perfis[pref[0]]) <= colunas ? pref : outro;
       }
       let melhor = null;
       for (const rot of opcoes) {
@@ -252,7 +258,7 @@
         const antes = baixoDe(alvo);
         const filme = new Filme(colunas);
         for (const q of pecas) if (q !== alvo) filme.ocupar(q.p, q.x, q.y);
-        const opcoes = girar && !alvo.n.fixo ? [0, 90] : [alvo.rot];
+        const opcoes = girar && !alvo.n.fixo ? giros(alvo.n) : [alvo.rot];
         let melhor = null;
         for (const rot of opcoes) {
           const p = medir(alvo.n.perfis[rot]);
@@ -283,6 +289,53 @@
       soma += baixoDe(q) * 4096 + q.x;
     }
     return { ...r, pos, fundo, soma, compactada: true };
+  }
+
+  // Encaixa só as peças novas na montagem que já existe (as outras ficam paradas): cada nova vai para o
+  // primeiro espaço livre em que terminar mais em cima, em qualquer giro. Usado quando alguém adiciona
+  // uma arte: se ela couber num buraco (no começo, no meio ou no fim), a folha não cresce.
+  // colocadas: [{ n, pos: {x, y, rot} }] (mm); novas: peças como em encaixar()
+  function acrescentar({ largura, espaco = 5, girar = true, colocadas, novas }) {
+    const colunas = Math.floor(largura / CELULA + 1e-6);
+    const d = Math.max(0, Math.ceil(espaco / CELULA - 1e-6));
+    const filme = new Filme(colunas);
+    const pos = {};
+    let fundo = 0, soma = 0;
+    for (const { n, pos: q } of colocadas) {
+      const p = medir(prepararPerfis(n).perfis[q.rot]);
+      const x = Math.round(q.x / CELULA), y = Math.round(q.y / CELULA);
+      filme.ocupar(p, x, y);
+      pos[n.id] = { x: x * CELULA, y: y * CELULA, rot: q.rot };
+      fundo = Math.max(fundo, (y + p.ultima + 1) * CELULA);
+      soma += (y + p.ultima + 1) * 4096 + x;
+    }
+    const fora = [];
+    // as maiores primeiro (as pequenas acham buraco depois)
+    const lista = novas.map(prepararPerfis).sort((a, b) => b.w * b.h - a.w * a.h);
+    for (const n of lista) {
+      const opcoes = girar && !n.fixo ? giros(n) : [n.rot];
+      let melhor = null;
+      for (const rot of opcoes) {
+        const p = medir(n.perfis[rot]);
+        if (p.dir - p.esq > colunas) continue;
+        if (!p.gordo || p.gordo.d !== d) p.gordo = engordar(p, d);
+        const xMin = 0 - p.esq, xMax = colunas - p.dir;
+        for (let y = 0 - p.primeira; ; y++) {
+          if (melhor && y + p.ultima + 1 >= melhor.baixo) break;
+          if (filme.sobra(y + p.primeira - d)) { melhor = { x: xMin, y, rot, p, baixo: y + p.ultima + 1 }; break; }
+          const salto = filme.proximoY(p, y);
+          if (salto !== y) { y = salto - 1; continue; }
+          const x = filme.xLivre(p.gordo, xMin, xMax, y);
+          if (x !== null) { melhor = { x, y, rot, p, baixo: y + p.ultima + 1 }; break; }
+        }
+      }
+      if (!melhor) { fora.push(n.id); continue; }
+      filme.ocupar(melhor.p, melhor.x, melhor.y);
+      pos[n.id] = { x: melhor.x * CELULA, y: melhor.y * CELULA, rot: melhor.rot };
+      fundo = Math.max(fundo, melhor.baixo * CELULA);
+      soma += melhor.baixo * 4096 + melhor.x;
+    }
+    return { pos, fora, fundo, soma };
   }
 
   function prepararPerfis(n) {
@@ -333,6 +386,7 @@
     const formas = [...new Set(lista.filter((n) => girar && !n.fixo && largDesenho(n.perfis[0]) <= Math.floor(largura / CELULA) &&
       largDesenho(n.perfis[90]) <= Math.floor(largura / CELULA)).map((n) => n.forma || n.id))];
 
+    const giroDaForma = new Map(lista.map((n) => [n.forma || n.id, giros(n)]));
     // 1) Poucas artes diferentes: testa TODAS as combinações de giro (cada arte em pé ou deitada),
     //    em duas ordens. Assim a combinação que alguém acharia testando à mão sempre entra na conta.
     if (formas.length && formas.length <= 9) {
@@ -353,7 +407,7 @@
       const peso = new Map(lista.map((n) => [n, area(n) * (0.35 + sorte() * 1.3)]));
       const ordem = sorte() < 0.2 ? [...lista].sort(() => sorte() - 0.5) : [...lista].sort((a, b) => peso.get(b) - peso.get(a));
       const porForma = new Map();
-      for (const f of formas) { const t = sorte(); porForma.set(f, t < 0.4 ? 'livre' : t < 0.7 ? 0 : 90); }
+      for (const f of formas) { const ops = giroDaForma.get(f) || [0, 90]; porForma.set(f, sorte() < 0.4 ? 'livre' : ops[Math.floor(sorte() * ops.length)]); }
       return { ordem, jeito: sorte() < 0.5 ? { giro: 'livre', criterio: qual(), porForma } : { giro: 'livre', criterioDaPeca: qual, porForma } };
     };
     let atual = melhor;
@@ -372,8 +426,9 @@
           const i = Math.floor(sorte() * ordem.length), [p] = ordem.splice(i, 1);
           ordem.splice(Math.floor(sorte() * i), 0, p);
         } else if (t < 0.85 && formas.length) { // vira o giro de uma arte
-          const f = formas[Math.floor(sorte() * formas.length)], v = jeito.porForma.get(f);
-          jeito.porForma.set(f, v === 0 ? 90 : v === 90 ? (sorte() < 0.5 ? 0 : 'livre') : (sorte() < 0.5 ? 0 : 90));
+          const f = formas[Math.floor(sorte() * formas.length)];
+          const ops = [...(giroDaForma.get(f) || [0, 90]), 'livre'];
+          jeito.porForma.set(f, ops[Math.floor(sorte() * ops.length)]);
         } else { delete jeito.criterioDaPeca; jeito.criterio = qual(); }
         receita = { ordem, jeito };
       }
@@ -412,7 +467,7 @@
   // Onde está o desenho dentro da caixa da peça (em células): {esq, dir, primeira, ultima}
   function limites(p) { medir(p); return { esq: p.esq, dir: p.dir, primeira: p.primeira, ultima: p.ultima }; }
 
-  const Encaixe = { encaixar, sobrepoe, perfilRetangulo, limites, CELULA };
+  const Encaixe = { encaixar, acrescentar, sobrepoe, perfilRetangulo, limites, CELULA };
   if (typeof module === 'object' && module.exports) module.exports = Encaixe;
   else raiz.Encaixe = Encaixe;
 })(typeof self !== 'undefined' ? self : this);

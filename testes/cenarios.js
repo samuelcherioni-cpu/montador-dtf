@@ -3,7 +3,8 @@
 // a partir do PNG: em cada linha, todos os trechos com desenho (buracos de até 3 mm contam como cheios).
 'use strict';
 
-const LARGURA_UTIL = 568; // 57 cm menos 1 mm de cada lado
+const LARGURA_UTIL = 568;
+const SO_DOIS_GIROS = process.env.SO_DOIS_GIROS === '1'; // para comparar com a versão de 2 giros // 57 cm menos 1 mm de cada lado
 const ESPACO = 5;
 
 function sorteador(semente) {
@@ -130,10 +131,12 @@ function arte(r, tipo, wcm, hcm) {
   const m = r() < 0.35 ? r.inteiro(2, 25) : 0; // até 2,5 cm de sobra transparente
   G = comMargem(G, m);
   if (G.cols > LARGURA_UTIL && G.linhas > LARGURA_UTIL) return null;
-  const p0 = perfil(G), p90 = perfil(girar90(G));
+  const G90 = girar90(G), G180 = girar90(G90), G270 = girar90(G180);
+  const p0 = perfil(G), p90 = perfil(G90);
+  const quatro = { 0: p0, 90: p90, 180: perfil(G180), 270: perfil(G270) };
   const linhasCom = p0.spans.map((t, y) => (t.length ? y : -1)).filter((y) => y >= 0);
   let esq = 1e9, dir = 0; for (const t of p0.spans) if (t.length) { esq = Math.min(esq, t[0]); dir = Math.max(dir, t[t.length - 1]); }
-  return { tipo, w: G.cols, h: G.linhas, dw: dir - esq, dh: linhasCom[linhasCom.length - 1] - linhasCom[0] + 1, area: p0.area, areaComEspaco: areaEngordada(G, 2), perfis: { 0: p0, 90: p90 } };
+  return { tipo, w: G.cols, h: G.linhas, dw: dir - esq, dh: linhasCom[linhasCom.length - 1] - linhasCom[0] + 1, area: p0.area, areaComEspaco: areaEngordada(G, 2), perfis: SO_DOIS_GIROS ? { 0: p0, 90: p90 } : quatro };
 }
 
 // ---------- tipos de fila ----------
@@ -156,6 +159,43 @@ const TIPOS_FILA = {
 };
 const NOMES_FORMAS = Object.keys(FORMAS);
 
+// Conjunto "real": como as filas da Zavari & Vantti. Nenhuma arte passa de 37 cm (nem de altura nem
+// de largura). Inclui a fila com uma arte pequena adicionada por último.
+const MAX = 37;
+const grande = (r) => () => [r.entre(22, MAX), r.entre(25, MAX)];
+const media = (r) => () => [r.entre(10, 25), r.entre(10, 25)];
+const pequena = (r) => () => [r.entre(3, 10), r.entre(3, 10)];
+const FORMAS_ESTAMPA = ['mancha', 'mancha', 'retrato', 'retrato', 'retangulo', 'elipse', 'logoRaios', 'texto', 'estrela', 'U', 'anel', 'triangulo', 'L', 'diagonal'];
+const TIPOS_REAL = {
+  'muitas grandes': (r) => lista(r, r.inteiro(3, 10), grande(r), () => r.inteiro(2, 8), FORMAS_ESTAMPA),
+  'muitas pequenas': (r) => lista(r, r.inteiro(5, 15), pequena(r), () => r.inteiro(10, 30), FORMAS_ESTAMPA),
+  'metade de cada': (r) => [
+    ...lista(r, r.inteiro(2, 6), grande(r), () => r.inteiro(1, 5), FORMAS_ESTAMPA),
+    ...lista(r, r.inteiro(3, 8), pequena(r), () => r.inteiro(5, 20), FORMAS_ESTAMPA),
+  ],
+  'médias': (r) => lista(r, r.inteiro(4, 10), media(r), () => r.inteiro(2, 10), FORMAS_ESTAMPA),
+  'poucas grandes': (r) => lista(r, r.inteiro(3, 8), grande(r), () => r.inteiro(1, 2), FORMAS_ESTAMPA),
+  'halftone': (r) => lista(r, r.inteiro(2, 8), () => [r.entre(15, MAX), r.entre(15, MAX)], () => r.inteiro(1, 6), ['mancha', 'retrato']),
+  'tudo misturado': (r) => [
+    ...lista(r, r.inteiro(1, 5), grande(r), () => r.inteiro(1, 6), FORMAS_ESTAMPA),
+    ...lista(r, r.inteiro(1, 6), media(r), () => r.inteiro(1, 8), FORMAS_ESTAMPA),
+    ...lista(r, r.inteiro(1, 6), pequena(r), () => r.inteiro(1, 25), FORMAS_ESTAMPA),
+  ],
+  // uma fila qualquer e, no fim, uma arte pequena: ela tem que achar um buraco sem aumentar a folha
+  'pequena por último': (r) => {
+    const base = r.um([
+      () => lista(r, r.inteiro(2, 6), grande(r), () => r.inteiro(1, 4), FORMAS_ESTAMPA),
+      () => lista(r, r.inteiro(3, 8), media(r), () => r.inteiro(1, 6), FORMAS_ESTAMPA),
+      () => [...lista(r, r.inteiro(1, 4), grande(r), () => r.inteiro(1, 3), FORMAS_ESTAMPA), ...lista(r, r.inteiro(1, 4), pequena(r), () => r.inteiro(2, 10), FORMAS_ESTAMPA)],
+    ])();
+    const ultima = lista(r, 1, () => [r.entre(3, 8), r.entre(3, 8)], () => 1, FORMAS_ESTAMPA);
+    if (!base.length || !ultima.length) return [];
+    ultima[0].ultimaPequena = true;
+    return [...base, ...ultima];
+  },
+};
+const CONJUNTOS = { geral: () => TIPOS_FILA, real: () => TIPOS_REAL };
+
 function lista(r, tipos, tamanho, quantidade, formas = NOMES_FORMAS) {
   const saida = [];
   for (let i = 0; i < tipos; i++) {
@@ -167,18 +207,19 @@ function lista(r, tipos, tamanho, quantidade, formas = NOMES_FORMAS) {
 }
 
 // Um cenário só (o de número i): cada núcleo gera só os que vai medir, sem guardar todos na memória.
-function gerarCenario(i, semente = 1) {
-  const nomes = Object.keys(TIPOS_FILA);
+function gerarCenario(i, semente = 1, conjunto = 'geral') {
+  const tipos = CONJUNTOS[conjunto]();
+  const nomes = Object.keys(tipos);
   const tipo = nomes[i % nomes.length];
   for (let tentativa = 0; ; tentativa++) {
-    const r = sorteador(semente * 100003 + i * 7919 + tentativa * 104729);
-    const artes = TIPOS_FILA[tipo](r);
+    const r = sorteador(semente * 100003 + i * 7919 + tentativa * 104729 + (conjunto === 'real' ? 55555 : 0));
+    const artes = tipos[tipo](r);
     if (artes.length) return { id: i, tipo, artes };
   }
 }
-function gerarCenarios(n, semente = 1) {
+function gerarCenarios(n, semente = 1, conjunto = 'geral') {
   const cenarios = [];
-  for (let i = 0; i < n; i++) cenarios.push(gerarCenario(i, semente));
+  for (let i = 0; i < n; i++) cenarios.push(gerarCenario(i, semente, conjunto));
   return cenarios;
 }
 
@@ -220,11 +261,26 @@ function avaliar(Encaixe, c, opcoes = {}) {
   // dividida pela largura (+2 mm de cada lado, onde a engorda pode sobrar para fora)
   const areaEsp = c.artes.reduce((s, a) => s + a.areaComEspaco * a.qtd, 0);
   const minimo = Math.max(areaEsp / (LARGURA_UTIL + 4), ...c.artes.map((a) => Math.min(a.dw, a.dh)));
+  // fila com uma pequena no fim: quanto a folha cresceu por causa dela (0 = achou um buraco)
+  let aumentou = null;
+  if (c.artes.some((a) => a.ultimaPequena)) {
+    const sem = { ...c, artes: c.artes.filter((a) => !a.ultimaPequena) };
+    const r0 = Encaixe.encaixar({ largura: LARGURA_UTIL, espaco: ESPACO, novas: pecasDo(sem), ...opcoes });
+    let final = r.fundo;
+    if (Encaixe.acrescentar) {
+      // como a tela faz: a montagem que já existia + a pequena num buraco, contra remontar tudo
+      const antes = pecasDo(sem), k = c.artes.findIndex((a) => a.ultimaPequena), a = c.artes[k];
+      const nova = { id: k + '-0', forma: 'f' + k, w: a.w, h: a.h, rot: 0, perfis: a.perfis };
+      const inc = Encaixe.acrescentar({ largura: LARGURA_UTIL, espaco: ESPACO, colocadas: antes.map((n) => ({ n, pos: r0.pos[n.id] })).filter((x) => x.pos), novas: [nova] });
+      final = Math.min(final, inc.fundo);
+    }
+    aumentou = Math.max(0, final - r0.fundo);
+  }
   return {
-    id: c.id, tipo: c.tipo, pecas: novas.length, fora: r.fora.length, fundo: r.fundo, ms, erro,
+    id: c.id, tipo: c.tipo, pecas: novas.length, fora: r.fora.length, fundo: r.fundo, ms, erro, aumentou,
     aproveitamento: area / (LARGURA_UTIL * Math.max(1, r.fundo)), // parte desenhada / filme usado
     folga: r.fundo / minimo, // quantas vezes o mínimo teórico (1,00 = impossível fazer melhor)
   };
 }
 
-module.exports = { gerarCenario, gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };
+module.exports = { CONJUNTOS, gerarCenario, gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };

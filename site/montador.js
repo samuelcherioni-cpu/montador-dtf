@@ -19,7 +19,8 @@
   const metrosTxt = (mm) => fmt(mm / 1000, 2) + ' m';
   const larguraUtil = () => FILME_MM - 2 * est.margem;
   const arteDe = (id) => est.artes.find((a) => a.id === id);
-  const medida = (p) => { const a = arteDe(p.arte); return p.rot ? { w: a.h, h: a.w } : { w: a.w, h: a.h }; };
+  const deitada = (rot) => rot % 180 !== 0; // 90 ou 270
+  const medida = (p) => { const a = arteDe(p.arte); return deitada(p.rot) ? { w: a.h, h: a.w } : { w: a.w, h: a.h }; };
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   let avisoTempo = 0;
@@ -60,7 +61,7 @@
       const manual = a.giro && a.giro !== 'auto';
       const pf = perfis(a);
       return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: manual ? Number(a.giro) : 0, fixo: manual,
-        perfis: leves ? { 0: leve(pf[0]), 90: leve(pf[90]) } : pf };
+        perfis: leves ? { 0: leve(pf[0]), 90: leve(pf[90]), 180: leve(pf[180]), 270: leve(pf[270]) } : pf };
     });
   }
   // só o necessário para mandar ao trabalhador (sem os cálculos guardados no perfil)
@@ -71,10 +72,21 @@
       if (q) { p.x = q.x + est.margem; p.y = q.y + est.margem; p.rot = q.rot; }
     }
   }
-  function encaixarPecas(pecas) {
+  function encaixarPecas(pecas, novasIds) {
     if (!pecas.length) { pararOtimizacao(); return; }
     // montagem rápida na hora; o trabalhador em segundo plano continua procurando uma folha mais curta
-    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(pecas), limiteMs: 150 });
+    let r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(pecas), limiteMs: 150 });
+    if (novasIds && novasIds.size) {
+      // peças acrescentadas: também tenta só encaixá-las na montagem que já existia (num buraco do
+      // começo, do meio ou do fim). Fica a melhor das duas: se a nova couber, a folha não cresce.
+      const pedido = pedidoDeEncaixe(pecas);
+      const colocadas = pedido.filter((n) => !novasIds.has(n.id)).map((n) => {
+        const p = pecas.find((q) => q.id === n.id);
+        return { n, pos: { x: p.x - est.margem, y: p.y - est.margem, rot: p.rot } };
+      });
+      const inc = Encaixe.acrescentar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, colocadas, novas: pedido.filter((n) => novasIds.has(n.id)) });
+      if (!inc.fora.length && (inc.fundo < r.fundo || r.fora.length)) r = inc;
+    }
     aplicar(r.pos);
     otimizar(r.fundo);
     if (r.fora.length) {
@@ -107,11 +119,11 @@
       if (m.id !== pedidoAtual) return;
       if (m.tipo === 'melhor' && !m.fora.length && m.fundo < melhorFundo - 0.01) {
         melhorFundo = m.fundo;
-        const deitadasAntes = est.pecas.map((p) => p.rot).join();
+        const deitadasAntes = est.pecas.map((p) => deitada(p.rot)).join();
         aplicar(m.pos);
         desenhar();
         // a lista só é redesenhada se mudou o que ela mostra (e nunca com alguém digitando nela)
-        if (deitadasAntes !== est.pecas.map((p) => p.rot).join() && !$('lista').contains(document.activeElement)) desenharLista();
+        if (deitadasAntes !== est.pecas.map((p) => deitada(p.rot)).join() && !$('lista').contains(document.activeElement)) desenharLista();
       } else if (m.tipo === 'fim') {
         otimizando = false;
         if (trabalhador) { trabalhador.terminate(); trabalhador = null; }
@@ -129,14 +141,14 @@
     if (a.perfis && a.perfis.chave === chave) return a.perfis;
     const C = Encaixe.CELULA;
     const fazer = (rot) => {
-      const cols = Math.ceil((rot ? a.h : a.w) / C - 1e-6), linhas = Math.ceil((rot ? a.w : a.h) / C - 1e-6);
+      const cols = Math.ceil((deitada(rot) ? a.h : a.w) / C - 1e-6), linhas = Math.ceil((deitada(rot) ? a.w : a.h) / C - 1e-6);
       const cv = document.createElement('canvas');
       cv.width = cols; cv.height = linhas;
       const ctx = cv.getContext('2d', { willReadFrequently: true });
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
-      if (rot) { ctx.translate(cols, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C); }
-      else ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C);
+      girarContexto(ctx, rot, cols, linhas);
+      ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C);
       const d = ctx.getImageData(0, 0, cols, linhas).data;
       // cada linha guarda todos os trechos com desenho; buracos de até 3 mm são tratados como cheios
       // (não cabe nada neles e deixa o encaixe mais rápido)
@@ -156,18 +168,27 @@
       }
       return { cols, linhas, spans };
     };
-    a.perfis = { chave, 0: fazer(0), 90: fazer(90) };
+    a.perfis = { chave, 0: fazer(0), 90: fazer(90), 180: fazer(180), 270: fazer(270) };
     let area = 0;
     for (const t of a.perfis[0].spans) for (let k = 0; k < t.length; k += 2) area += t[k + 1] - t[k];
     a.perfis.area = area * Encaixe.CELULA * Encaixe.CELULA;
     return a.perfis;
   }
 
+  // Prepara o desenho de uma arte girada dentro de uma caixa de w x h (já no giro): 90 = horário,
+  // 180 = de cabeça para baixo, 270 = anti-horário
+  function girarContexto(ctx, rot, w, h) {
+    if (rot === 90) { ctx.translate(w, 0); ctx.rotate(Math.PI / 2); }
+    else if (rot === 180) { ctx.translate(w, h); ctx.rotate(Math.PI); }
+    else if (rot === 270) { ctx.translate(0, h); ctx.rotate(-Math.PI / 2); }
+  }
+
   // Toda mudança refaz o encaixe de todas as artes, para a fila ficar sempre compacta.
   // Em pé ou deitada (90°): quem decide é o encaixe, peça por peça, para gastar menos filme.
-  function reorganizar() {
-    for (const p of est.pecas) p.rot = 0;
-    encaixarPecas(est.pecas);
+  // novasIds: peças que acabaram de entrar (as outras já têm lugar na montagem atual)
+  function reorganizar(novasIds) {
+    if (!novasIds) for (const p of est.pecas) p.rot = 0;
+    encaixarPecas(est.pecas, novasIds);
   }
   function organizar() {
     reorganizar();
@@ -218,8 +239,9 @@
     }
     // as artes só entram na fila depois de todas carregadas, já encaixadas: enquanto carregam, nada
     // fica parado no canto por cima de outra peça
-    for (const arte of novas) { est.artes.push(arte); novaPeca(arte); }
-    if (novas.length) reorganizar();
+    const ids = new Set();
+    for (const arte of novas) { est.artes.push(arte); ids.add(novaPeca(arte).id); }
+    if (novas.length) reorganizar(est.pecas.length > ids.size ? ids : undefined);
     desenharLista();
     desenhar();
   }
@@ -277,15 +299,18 @@
   function mudarQtd(arte, qtd) {
     qtd = Math.max(1, Math.min(999, Math.round(qtd) || 1));
     const atuais = est.pecas.filter((p) => p.arte === arte.id);
+    let novas;
     if (qtd > atuais.length) {
-      for (let i = atuais.length; i < qtd; i++) novaPeca(arte);
+      // cópias a mais: também tentam só achar buraco na montagem atual (a folha não cresce se couberem)
+      novas = new Set();
+      for (let i = atuais.length; i < qtd; i++) novas.add(novaPeca(arte).id);
     } else if (qtd < atuais.length) {
       const sai = new Set(atuais.slice(qtd).map((p) => p.id));
       est.pecas = est.pecas.filter((p) => !sai.has(p.id));
       sai.forEach((id) => est.sel.delete(id));
     }
     arte.qtd = est.pecas.filter((p) => p.arte === arte.id).length;
-    reorganizar();
+    reorganizar(novas);
   }
 
   function mudarTamanho(arte, campo, valorCm) {
@@ -307,7 +332,7 @@
   // Clique no símbolo de girar: a arte passa para giro manual e vira 90° em relação a como está agora
   function girarArte(a) {
     const pecas = est.pecas.filter((p) => p.arte === a.id);
-    const atual = a.giro !== 'auto' ? Number(a.giro) : (pecas.filter((p) => p.rot).length * 2 > pecas.length ? 90 : 0);
+    const atual = a.giro !== 'auto' ? Number(a.giro) : (pecas.filter((p) => deitada(p.rot)).length * 2 > pecas.length ? 90 : 0);
     const nova = atual ? 0 : 90;
     if (!cabeNoGiro(a, nova)) { avisar(`${a.nome}: ${nova ? 'deitada' : 'em pé'} passa da largura do filme.`, true); return; }
     a.giro = String(nova);
@@ -351,7 +376,7 @@
       const selos = [];
       if (dpi < DPI_MINIMO) selos.push(`<span class="selo atencao">Resolução baixa · ${Math.round(dpi)} DPI</span>`);
       if (!a.transparente) selos.push('<span class="selo atencao">Sem fundo transparente</span>');
-      const deitadas = est.pecas.filter((p) => p.arte === a.id && p.rot).length;
+      const deitadas = est.pecas.filter((p) => p.arte === a.id && deitada(p.rot)).length;
       if (deitadas && a.giro === 'auto') selos.push(`<span class="selo ok">${deitadas === a.qtd ? 'Deitada no filme' : deitadas + ' de ' + a.qtd + ' deitadas no filme'}</span>`);
       if (a.giro !== 'auto') selos.push('<button class="selo ok selo-botao" data-acao="auto" type="button">Giro manual · voltar ao automático</button>');
       return `<article class="arte glass brilho${selArtes.has(a.id) ? ' marcada' : ''}" data-arte="${a.id}">
@@ -471,8 +496,9 @@
     let html = `<div class="limite" style="left:${est.margem * s}px;top:${est.margem * s}px;width:${(FILME_MM - 2 * est.margem) * s}px;height:${(L - 2 * est.margem) * s}px"></div>`;
     for (const p of est.pecas) {
       const a = arteDe(p.arte), m = medida(p);
-      const img = p.rot
-        ? `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px;transform:translateX(${a.h * s}px) rotate(90deg)">`
+      const gir = { 90: `translateX(${a.h * s}px) rotate(90deg)`, 180: `translate(${a.w * s}px,${a.h * s}px) rotate(180deg)`, 270: `translateY(${a.w * s}px) rotate(-90deg)` }[p.rot];
+      const img = gir
+        ? `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px;transform:${gir}">`
         : `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px">`;
       const cls = 'peca' + (est.sel.has(p.id) ? ' sel' : '') + (ruins.has(p.id) ? ' ruim' : '');
       html += `<div class="${cls}" data-peca="${p.id}" style="left:${p.x * s}px;top:${p.y * s}px;width:${m.w * s}px;height:${m.h * s}px" title="${esc(a.nome)} · ${cm(m.w)} × ${cm(m.h)} cm">${img}</div>`;
@@ -668,7 +694,7 @@
         const umPraUm = px.w === a.pxW && px.h === a.pxH;
         // posição em pixel inteiro: sem isso o navegador recalcula a borda e ela sai borrada
         return { a, rot: p.rot, x: Math.round(p.x * PX_MM), y: Math.round(p.y * PX_MM),
-          w: p.rot ? px.h : px.w, h: p.rot ? px.w : px.h, suave: !umPraUm && !a.dura };
+          w: deitada(p.rot) ? px.h : px.w, h: deitada(p.rot) ? px.w : px.h, suave: !umPraUm && !a.dura };
       });
       const cv = document.createElement('canvas');
       cv.width = FILME_PX;
@@ -691,12 +717,24 @@
             const t0 = Math.max(0, y0 - q.y), t1 = Math.min(q.h, y0 + n - q.y); // trecho da altura da peça, em px
             if (t1 <= t0) continue;
             ctx.save();
-            if (q.rot) {
-              // girada 90°: a largura da imagem original corre para baixo no filme
+            if (q.rot === 90) {
+              // girada 90° (horário): a largura da imagem original corre para baixo no filme
               const s0 = (t0 / q.h) * bmp.width, s1 = (t1 / q.h) * bmp.width;
               ctx.translate(q.x + q.w, q.y);
               ctx.rotate(Math.PI / 2);
               ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, t0, 0, t1 - t0, q.w);
+            } else if (q.rot === 270) {
+              // girada 270° (anti-horário): a largura da imagem corre para cima no filme
+              const s0 = ((q.h - t1) / q.h) * bmp.width, s1 = ((q.h - t0) / q.h) * bmp.width;
+              ctx.translate(q.x, q.y + q.h);
+              ctx.rotate(-Math.PI / 2);
+              ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, q.h - t1, 0, t1 - t0, q.w);
+            } else if (q.rot === 180) {
+              // de cabeça para baixo: as linhas de cima do filme vêm do fim da imagem
+              const s0 = ((q.h - t1) / q.h) * bmp.height, s1 = ((q.h - t0) / q.h) * bmp.height;
+              ctx.translate(q.x + q.w, q.y + q.h);
+              ctx.rotate(Math.PI);
+              ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, 0, q.h - t1, q.w, t1 - t0);
             } else {
               const s0 = (t0 / q.h) * bmp.height, s1 = (t1 / q.h) * bmp.height;
               ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, q.x, q.y + t0, q.w, t1 - t0);
