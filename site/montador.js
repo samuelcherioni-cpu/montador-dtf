@@ -211,12 +211,14 @@
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
           transparente: temTransparencia(bitmap), qtd: 1, nativo, dura: bordaDura(bitmap),
         };
-        est.artes.push(arte);
-        novas.push(novaPeca(arte));
+        novas.push(arte);
       } catch (e) {
         avisar(`Não foi possível abrir ${f.name}.`, true);
       }
     }
+    // as artes só entram na fila depois de todas carregadas, já encaixadas: enquanto carregam, nada
+    // fica parado no canto por cima de outra peça
+    for (const arte of novas) { est.artes.push(arte); novaPeca(arte); }
     if (novas.length) reorganizar();
     desenharLista();
     desenhar();
