@@ -1,0 +1,8 @@
+{
+  "name": "fila-dtf",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node testes/teste-encaixe.js && node testes/teste-png.js && node checar-isolamento.js"
+  }
+}

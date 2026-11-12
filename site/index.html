@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fila DTF · Zavari &amp; Vantti</title>
+  <meta name="description" content="Monte a fila de DTF no filme de 57 cm e baixe o PNG 300 DPI pronto para impressão.">
+  <meta name="theme-color" content="#0b0b0c">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'; connect-src 'self' blob: data:; frame-src 'none'; form-action 'none'; base-uri 'none'">
+  <link rel="icon" type="image/png" href="logo-zavari.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <div class="backdrop"></div>
+  <div class="app">
+    <header class="topbar glass brilho">
+      <div class="logos"><img src="logo-vantti.png" alt="Vantti"><img src="logo-zavari.png" alt="Zavari"></div>
+      <div class="marca"><b class="grad-text">Fila DTF</b><span>Zavari · Vantti · filme de 57 cm · PNG 300 DPI</span></div>
+      <div class="acoes">
+        <button class="btn btn-ghost" id="btnAdicionar" type="button" title="Adicionar artes (PNG)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg><span>Adicionar artes</span>
+        </button>
+        <button class="btn btn-ghost" id="btnOrganizar" type="button" title="Refazer o encaixe de todas as artes">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Organizar</span>
+        </button>
+        <button class="btn btn-primary" id="btnBaixar" type="button" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/></svg><span>Baixar PNG</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="corpo">
+      <aside class="lado">
+        <section class="cartao glass brilho">
+          <div class="faixa"></div>
+          <div class="cartao-topo">
+            <span class="rotulo">Filme</span>
+            <ul class="pilulas"><li>57 cm</li><li>300 DPI</li><li>Transparente</li></ul>
+          </div>
+          <div class="campos">
+            <div class="campo inteiro">
+              <label for="modo">Comprimento</label>
+              <div class="junto">
+                <select class="select" id="modo"><option value="auto">Automático (o que a fila ocupar)</option><option value="fixo">Fixo em metros</option></select>
+                <input class="input num" id="metros" type="number" min="0.1" max="20" step="0.1" value="1" inputmode="decimal" aria-label="Metros" hidden>
+              </div>
+            </div>
+            <div class="campo">
+              <label for="espaco">Espaço entre artes (mm)</label>
+              <input class="input num" id="espaco" type="number" min="0" max="50" step="1" value="5" inputmode="numeric">
+            </div>
+            <div class="campo">
+              <label for="margem">Margem lateral (mm)</label>
+              <input class="input num" id="margem" type="number" min="0" max="30" step="1" value="3" inputmode="numeric">
+            </div>
+            <div class="campo inteiro">
+              <label for="ident">Identificação no fim do filme</label>
+              <input class="input" id="ident" maxlength="40" placeholder="Nome ou nº do pedido (opcional)" autocomplete="off">
+            </div>
+            <label class="chave inteiro"><input type="checkbox" id="girar" checked> Girar artes para gastar menos filme</label>
+          </div>
+        </section>
+
+        <div id="lista"></div>
+        <p class="rodape">Os arquivos ficam só neste aparelho; nada é enviado.</p>
+      </aside>
+
+      <section class="palco glass">
+        <div class="palco-topo">
+          <span class="rotulo">Visualização</span>
+          <span class="estado num" id="estado">Nenhuma arte</span>
+          <div class="zoom">
+            <button class="btn btn-ghost btn-icone" id="zoomMenos" type="button" aria-label="Diminuir zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg></button>
+            <span class="num" id="zoomValor">100%</span>
+            <button class="btn btn-ghost btn-icone" id="zoomMais" type="button" aria-label="Aumentar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
+            <button class="btn btn-ghost btn-icone" id="zoomAjustar" type="button" aria-label="Ajustar à largura" title="Ajustar à largura"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+          </div>
+        </div>
+        <div class="visor" id="visor">
+          <div class="trilho" id="trilho">
+            <div class="regua-x" id="reguaX"></div>
+            <div class="regua-y" id="reguaY"></div>
+            <div class="filme" id="filme"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <input type="file" id="arquivos" accept="image/png" multiple hidden>
+  <div class="soltar" id="soltar" hidden>Solte os PNGs</div>
+  <div class="aviso" id="aviso" role="status" hidden></div>
+
+  <div class="modal" id="modalBaixar" hidden>
+    <div class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="tituloBaixar">
+      <div class="modal-topo">
+        <div><b id="tituloBaixar">Gerar PNG</b><span class="discreto num" id="baixarResumo"></span></div>
+        <button class="fechar" type="button" data-fechar aria-label="Fechar">✕</button>
+      </div>
+      <div class="barra"><i id="baixarBarra"></i></div>
+      <div class="modal-info num" id="baixarInfo"></div>
+      <div class="modal-acoes">
+        <a class="btn btn-primary" id="baixarSalvar" hidden>Salvar arquivo</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="brilho.js"></script>
+  <script src="encaixe.js"></script>
+  <script src="png.js"></script>
+  <script src="montador.js"></script>
+</body>
+</html>
