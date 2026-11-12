@@ -43,7 +43,8 @@
   }
 
   // largura: largura útil; espaco: distância mínima entre artes; girar: pode virar 90°
-  // fixas: [{x, y, w, h}] já no filme; novas: [{id, w, h, rot}] com w × h da arte sem giro e rot = giro preferido (0 ou 90)
+  // fixas: [{x, y, w, h}] já no filme; novas: [{id, w, h, rot, fixo}] com w × h da arte sem giro, rot = giro preferido (0 ou 90)
+  // e fixo = true quando o giro foi escolhido à mão e não pode mudar
   function rodada(largura, espaco, girar, fixas, novas) {
     const area = new Area(largura + espaco, SEM_FIM);
     for (const r of fixas) area.ocupar({ x: r.x, y: r.y, w: r.w + espaco, h: r.h + espaco });
@@ -51,7 +52,7 @@
     let fundo = 0;
     for (const p of fixas) fundo = Math.max(fundo, p.y + p.h);
     for (const n of novas) {
-      const opcoes = girar ? [n.rot, n.rot ? 0 : 90] : [n.rot];
+      const opcoes = girar && !n.fixo ? [n.rot, n.rot ? 0 : 90] : [n.rot];
       let melhor = null;
       for (const rot of opcoes) {
         const w = rot ? n.h : n.w, h = rot ? n.w : n.h;

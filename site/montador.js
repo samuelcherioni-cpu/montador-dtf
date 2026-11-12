@@ -55,7 +55,7 @@
       const m = medida(p);
       return { x: p.x - est.margem, y: p.y - est.margem, w: m.w, h: m.h };
     });
-    const novas = pecas.map((p) => { const a = arteDe(p.arte); return { id: p.id, w: a.w, h: a.h, rot: p.rot }; });
+    const novas = pecas.map((p) => { const a = arteDe(p.arte); return { id: p.id, w: a.w, h: a.h, rot: p.rot, fixo: !!a.rotFixa }; });
     const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, fixas, novas });
     for (const p of pecas) {
       const pos = r.pos[p.id];
@@ -68,9 +68,13 @@
       avisar(`${r.fora.length} cópia(s) não cabem na largura do filme. Diminua a arte.`, true);
     }
   }
-  function organizar() {
+  // Toda mudança refaz o encaixe de todas as artes, para a fila ficar sempre compacta
+  function reorganizar() {
     for (const p of est.pecas) p.rot = arteDe(p.arte).rot;
     encaixarPecas(est.pecas);
+  }
+  function organizar() {
+    reorganizar();
     est.sel.clear();
     desenhar();
   }
@@ -112,7 +116,7 @@
         avisar(`Não foi possível abrir ${f.name}.`, true);
       }
     }
-    encaixarPecas(novas);
+    if (novas.length) reorganizar();
     desenharLista();
     desenhar();
   }
@@ -134,15 +138,14 @@
     qtd = Math.max(1, Math.min(999, Math.round(qtd) || 1));
     const atuais = est.pecas.filter((p) => p.arte === arte.id);
     if (qtd > atuais.length) {
-      const novas = [];
-      for (let i = atuais.length; i < qtd; i++) novas.push(novaPeca(arte));
-      encaixarPecas(novas);
+      for (let i = atuais.length; i < qtd; i++) novaPeca(arte);
     } else if (qtd < atuais.length) {
       const sai = new Set(atuais.slice(qtd).map((p) => p.id));
       est.pecas = est.pecas.filter((p) => !sai.has(p.id));
       sai.forEach((id) => est.sel.delete(id));
     }
     arte.qtd = est.pecas.filter((p) => p.arte === arte.id).length;
+    reorganizar();
   }
 
   function mudarTamanho(arte, campo, valorCm) {
@@ -153,9 +156,8 @@
     if (!cabe(w, h)) { avisar(`Não cabe no filme: o lado menor pode ter até ${cm(larguraUtil())} cm.`, true); return false; }
     arte.w = arred(w); arte.h = arred(h);
     if (!est.girar && arte.rot === 0 && arte.w > larguraUtil()) arte.rot = 90;
-    const pecas = est.pecas.filter((p) => p.arte === arte.id);
-    pecas.forEach((p) => { p.rot = arte.rot; });
-    encaixarPecas(pecas);
+    if (arte.rotFixa && (arte.rot ? arte.h : arte.w) > larguraUtil() + 1e-6) arte.rotFixa = false;
+    reorganizar();
     return true;
   }
 
@@ -164,12 +166,8 @@
     const w = nova ? arte.h : arte.w;
     if (w > larguraUtil() + 1e-6) { avisar('Girada, a arte passa da largura do filme.', true); return; }
     arte.rot = nova;
-    const pecas = est.pecas.filter((p) => p.arte === arte.id);
-    pecas.forEach((p) => { p.rot = nova; });
-    const girar = est.girar;
-    est.girar = false; // respeita o giro escolhido
-    encaixarPecas(pecas);
-    est.girar = girar;
+    arte.rotFixa = true; // o giro escolhido à mão é respeitado no encaixe automático
+    reorganizar();
   }
 
   function removerArte(arte) {
@@ -177,6 +175,7 @@
     est.artes = est.artes.filter((a) => a !== arte);
     URL.revokeObjectURL(arte.url);
     if (arte.bitmap.close) arte.bitmap.close();
+    reorganizar();
   }
 
   // ---------- lista de artes ----------
@@ -209,10 +208,10 @@
         <div class="arte-info">
           <div class="arte-nome"><b title="${esc(a.nome)}">${esc(a.nome)}</b><span class="num">${a.pxW} × ${a.pxH} px</span></div>
           <div class="medidas">
-            <input class="input curto num" data-campo="w" type="number" min="0.5" step="0.1" value="${fmtCampo(a.w)}" aria-label="Largura em cm">
-            <small>×</small>
-            <input class="input curto num" data-campo="h" type="number" min="0.5" step="0.1" value="${fmtCampo(a.h)}" aria-label="Altura em cm">
-            <small>cm</small>
+            <label class="med"><span>Largura</span><input class="input curto num" data-campo="w" type="number" min="0.5" step="0.1" value="${fmtCampo(a.w)}" aria-label="Largura em cm"></label>
+            <small class="vezes">×</small>
+            <label class="med"><span>Altura</span><input class="input curto num" data-campo="h" type="number" min="0.5" step="0.1" value="${fmtCampo(a.h)}" aria-label="Altura em cm"></label>
+            <small class="vezes">cm</small>
             <button class="btn btn-ghost btn-icone${a.travado ? ' ativo' : ''}" data-acao="travar" type="button" title="${a.travado ? 'Proporção travada' : 'Proporção livre'}" aria-label="Travar proporção">${svg(a.travado ? 'fechado' : 'aberto')}</button>
           </div>
           <div class="arte-linha">
@@ -228,7 +227,7 @@
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
         </div>
       </article>`;
-    }).join('');
+    }).join('') + `<div class="lista-fim"><button class="btn btn-ghost" data-acao="adicionar" type="button">${svg('mais')}Adicionar artes</button></div>`;
   }
   const fmtCampo = (mm) => String(Math.round(mm) / 10);
 
@@ -236,6 +235,7 @@
     if (e.target.closest('#vazio')) { $('arquivos').click(); return; }
     const b = e.target.closest('[data-acao]');
     if (!b) return;
+    if (b.dataset.acao === 'adicionar') { $('arquivos').click(); return; }
     const arte = arteDe(b.closest('[data-arte]').dataset.arte);
     if (!arte) return;
     const acao = b.dataset.acao;
@@ -266,10 +266,12 @@
   // ---------- visualização ----------
   function escala() {
     const visor = $('visor');
-    const disponivel = Math.max(120, visor.clientWidth - (innerWidth <= 860 ? 52 : 64));
-    const ajuste = disponivel / FILME_MM;
-    return est.zoom ? ajuste * est.zoom : ajuste;
+    const largura = Math.max(80, visor.clientWidth - FOLGA_X);
+    const altura = Math.max(80, visor.clientHeight - FOLGA_Y);
+    const inteiro = Math.min(largura / FILME_MM, altura / comprimento());
+    return inteiro * (est.zoom || 1);
   }
+  const FOLGA_X = 70, FOLGA_Y = 58; // réguas e respiro em volta do filme
 
   function sobrepostas() {
     const ruins = new Set();
@@ -297,13 +299,14 @@
     trilho.style.height = H + 'px';
     filme.style.width = W + 'px';
     filme.style.height = H + 'px';
-    $('zoomValor').textContent = Math.round((est.zoom || 1) * 100) + '%';
+    $('zoomValor').textContent = est.zoom ? Math.round(est.zoom * 100) + '%' : 'Inteiro';
 
     // réguas: a cada 5 cm na largura e a cada 10 cm no comprimento
     let rx = '';
-    for (let c = 0; c <= 57; c += 5) rx += `<span class="marca-x" style="left:${c * 10 * s}px">${c}</span>`;
+    const passoX = 50 * s >= 24 ? 5 : 100 * s >= 24 ? 10 : 20;
+    for (let c = 0; c <= 57; c += passoX) rx += `<span class="marca-x" style="left:${c * 10 * s}px">${c}</span>`;
     $('reguaX').innerHTML = rx;
-    const passo = H > 2500 ? 50 : 10;
+    const passo = [10, 20, 50, 100, 200].find((p) => p * 10 * s >= 20) || 500;
     let ry = '';
     for (let c = 0; c * 10 <= L; c += passo) ry += `<span class="marca-y" style="top:${c * 10 * s}px">${c % 100 === 0 && c ? c / 100 + ' m' : c}</span>`;
     $('reguaY').innerHTML = ry;
@@ -350,14 +353,19 @@
   function areaPecas() { return est.pecas.reduce((s, p) => { const m = medida(p); return s + m.w * m.h; }, 0); }
 
   // ---------- arrastar e selecionar ----------
+  function marcarSelecao() {
+    for (const d of $('filme').querySelectorAll('[data-peca]')) d.classList.toggle('sel', est.sel.has(d.dataset.peca));
+    const artes = new Set(est.pecas.filter((p) => est.sel.has(p.id)).map((p) => p.arte));
+    for (const c of $('lista').querySelectorAll('[data-arte]')) c.classList.toggle('marcada', artes.has(c.dataset.arte));
+  }
   let arrasto = null;
   $('filme').addEventListener('pointerdown', (e) => {
     const el = e.target.closest('[data-peca]');
-    if (!el) { if (est.sel.size) { est.sel.clear(); desenhar(); desenharLista(); } return; }
+    if (!el) { if (est.sel.size) { est.sel.clear(); marcarSelecao(); } return; }
     const id = el.dataset.peca;
     if (e.shiftKey || e.ctrlKey || e.metaKey) {
       if (est.sel.has(id)) est.sel.delete(id); else est.sel.add(id);
-      desenhar(); desenharLista();
+      marcarSelecao();
       return;
     }
     if (!est.sel.has(id)) { est.sel.clear(); est.sel.add(id); }
@@ -365,8 +373,8 @@
     const s = escala();
     const pecas = est.pecas.filter((p) => est.sel.has(p.id));
     arrasto = { x0: e.clientX, y0: e.clientY, s, mexeu: false, pecas: pecas.map((p) => ({ p, x: p.x, y: p.y, m: medida(p) })), el };
-    el.setPointerCapture(e.pointerId);
-    desenhar(); desenharLista();
+    $('filme').setPointerCapture(e.pointerId);
+    marcarSelecao();
   });
   $('filme').addEventListener('pointermove', (e) => {
     if (!arrasto) return;
@@ -402,16 +410,32 @@
         a.qtd = est.pecas.filter((p) => p.arte === a.id).length;
         if (!a.qtd) removerArte(a);
       }
+      reorganizar();
       desenharLista(); desenhar();
     }
   });
 
   // ---------- zoom ----------
-  const NIVEIS = [0.5, 0.75, 1, 1.5, 2, 3, 4, 6];
-  function zoomPara(z) { est.zoom = z === 1 ? null : z; desenhar(); }
+  const NIVEIS = [1, 1.5, 2, 3, 4, 6, 8, 12, 16];
+  function zoomPara(z) {
+    const v = $('visor');
+    const cx = (v.scrollLeft + v.clientWidth / 2) / Math.max(1, v.scrollWidth);
+    const cy = (v.scrollTop + v.clientHeight / 2) / Math.max(1, v.scrollHeight);
+    est.zoom = z === 1 ? null : z;
+    desenhar();
+    v.scrollLeft = cx * v.scrollWidth - v.clientWidth / 2;
+    v.scrollTop = cy * v.scrollHeight - v.clientHeight / 2;
+  }
   $('zoomMais').addEventListener('click', () => { const z = est.zoom || 1; zoomPara(NIVEIS.find((n) => n > z + 1e-9) || z); });
   $('zoomMenos').addEventListener('click', () => { const z = est.zoom || 1; zoomPara([...NIVEIS].reverse().find((n) => n < z - 1e-9) || z); });
   $('zoomAjustar').addEventListener('click', () => zoomPara(1));
+  // Ctrl + roda do mouse aproxima e afasta
+  $('visor').addEventListener('wheel', (e) => {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    const z = est.zoom || 1;
+    zoomPara(e.deltaY < 0 ? NIVEIS.find((n) => n > z + 1e-9) || z : [...NIVEIS].reverse().find((n) => n < z - 1e-9) || 1);
+  }, { passive: false });
   let redim = 0;
   addEventListener('resize', () => { cancelAnimationFrame(redim); redim = requestAnimationFrame(desenhar); });
 

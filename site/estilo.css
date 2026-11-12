@@ -138,8 +138,14 @@ button:disabled { cursor: default; opacity: 0.5; }
 .arte-nome b { font-size: 0.86rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .arte-nome span { margin-left: auto; font-size: 0.7rem; color: var(--faint); white-space: nowrap; }
 .medidas { display: flex; align-items: center; gap: 6px; }
+.medidas { align-items: flex-end; }
+.med { display: flex; flex-direction: column; gap: 2px; }
+.med span { font-size: 0.66rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .medidas .input { width: 68px; }
 .medidas small { color: var(--faint); font-size: 0.72rem; }
+.medidas .vezes { padding-bottom: 7px; }
+.lista-fim { display: flex; justify-content: flex-end; }
+.zoom span { min-width: 56px; }
 .arte-linha { display: flex; align-items: center; gap: 6px; }
 .qtd { display: flex; align-items: center; gap: 4px; margin-right: auto; }
 .qtd .input { width: 52px; }
@@ -158,8 +164,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 .estado.ok { color: var(--ok); }
 .zoom { margin-left: auto; display: flex; align-items: center; gap: 6px; }
 .zoom span { min-width: 44px; text-align: center; font-size: 0.76rem; color: var(--muted); }
-.visor { flex: 1; min-height: 0; overflow: auto; padding: 30px 20px 30px 44px; position: relative; touch-action: pan-x pan-y; }
-.trilho { position: relative; margin: 0 auto; }
+.visor { flex: 1; min-height: 0; overflow: auto; position: relative; touch-action: pan-x pan-y; }
+/* a área cresce com o zoom e centraliza o filme quando ele é menor que a tela */
+.area { display: flex; min-width: 100%; min-height: 100%; width: max-content; height: max-content; padding: 28px 22px 26px 48px; }
+.trilho { position: relative; margin: auto; flex: none; }
+.eixos { padding: 8px 14px; border-top: 1px solid var(--line); font-size: 0.74rem; color: var(--faint); }
 .regua-x { position: absolute; left: 0; right: 0; top: -22px; height: 18px; }
 .regua-y { position: absolute; top: 0; bottom: 0; left: -38px; width: 34px; }
 .marca-x, .marca-y { position: absolute; font-size: 0.64rem; color: var(--faint); font-variant-numeric: tabular-nums; }
@@ -206,7 +215,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   .corpo { display: flex; flex-direction: column; }
   .palco { order: -1; height: 64vh; min-height: 360px; }
   .lado { overflow: visible; padding: 0; }
-  .visor { padding: 28px 12px 24px 40px; }
+
 }
 @media (max-width: 560px) {
   .topbar { flex-wrap: wrap; gap: 10px; }

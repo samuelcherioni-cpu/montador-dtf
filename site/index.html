@@ -77,16 +77,19 @@
             <button class="btn btn-ghost btn-icone" id="zoomMenos" type="button" aria-label="Diminuir zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12"/></svg></button>
             <span class="num" id="zoomValor">100%</span>
             <button class="btn btn-ghost btn-icone" id="zoomMais" type="button" aria-label="Aumentar zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg></button>
-            <button class="btn btn-ghost btn-icone" id="zoomAjustar" type="button" aria-label="Ajustar à largura" title="Ajustar à largura"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+            <button class="btn btn-ghost btn-icone" id="zoomAjustar" type="button" aria-label="Ver o filme inteiro" title="Ver o filme inteiro"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
           </div>
         </div>
         <div class="visor" id="visor">
-          <div class="trilho" id="trilho">
-            <div class="regua-x" id="reguaX"></div>
-            <div class="regua-y" id="reguaY"></div>
-            <div class="filme" id="filme"></div>
+          <div class="area">
+            <div class="trilho" id="trilho">
+              <div class="regua-x" id="reguaX"></div>
+              <div class="regua-y" id="reguaY"></div>
+              <div class="filme" id="filme"></div>
+            </div>
           </div>
         </div>
+        <div class="eixos">Largura do filme: 57 cm (de um lado ao outro) · Comprimento: para baixo, em metros</div>
       </section>
     </main>
   </div>
