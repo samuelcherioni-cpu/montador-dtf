@@ -52,7 +52,9 @@
     if (!pecas.length) return;
     const novas = pecas.map((p) => {
       const a = arteDe(p.arte);
-      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: p.rot, perfis: perfis(a) };
+      // giro: 'auto' (o encaixe decide) ou escolhido à mão (0 = em pé, 90 = deitada)
+      const manual = a.giro && a.giro !== 'auto';
+      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: manual ? Number(a.giro) : 0, fixo: manual, perfis: perfis(a) };
     });
     const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas });
     for (const p of pecas) {
@@ -139,7 +141,7 @@
         if (w > u) { h = (h * u) / w; w = u; }
         const arte = {
           id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), bitmap, url: URL.createObjectURL(f),
-          previa: await previa(bitmap),
+          previa: await previa(bitmap), giro: 'auto',
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
           transparente: temTransparencia(bitmap), qtd: 1,
         };
@@ -200,9 +202,16 @@
     if (campo === 'w') { if (arte.travado) h = (h * mm) / w; w = mm; } else { if (arte.travado) w = (w * mm) / h; h = mm; }
     if (!cabe(w, h)) { avisar(`Não cabe no filme: o lado menor pode ter até ${cm(larguraUtil())} cm.`, true); return false; }
     arte.w = arred(w); arte.h = arred(h);
+    if (arte.giro !== 'auto' && !cabeNoGiro(arte, arte.giro)) {
+      arte.giro = 'auto';
+      avisar(arte.nome + ': no novo tamanho ela só cabe girada. Giro voltou para automático.', true);
+    }
     reorganizar();
     return true;
   }
+
+  // a arte cabe na largura do filme nesse giro? (0 = em pé, 90 = deitada)
+  function cabeNoGiro(a, giro) { return (Number(giro) ? a.h : a.w) <= larguraUtil() + 1e-6; }
 
   function removerArte(arte) {
     est.pecas = est.pecas.filter((p) => p.arte !== arte.id);
@@ -238,7 +247,7 @@
       if (dpi < DPI_MINIMO) selos.push(`<span class="selo atencao">Resolução baixa · ${Math.round(dpi)} DPI</span>`);
       if (!a.transparente) selos.push('<span class="selo atencao">Sem fundo transparente</span>');
       const deitadas = est.pecas.filter((p) => p.arte === a.id && p.rot).length;
-      if (deitadas) selos.push(`<span class="selo ok">${deitadas === a.qtd ? 'Deitada no filme' : deitadas + ' de ' + a.qtd + ' deitadas no filme'}</span>`);
+      if (deitadas && a.giro === 'auto') selos.push(`<span class="selo ok">${deitadas === a.qtd ? 'Deitada no filme' : deitadas + ' de ' + a.qtd + ' deitadas no filme'}</span>`);
       return `<article class="arte glass brilho${selArtes.has(a.id) ? ' marcada' : ''}" data-arte="${a.id}">
         <div class="mini"><img src="${a.previa}" alt=""></div>
         <div class="arte-info">
@@ -257,6 +266,11 @@
               <input class="input curto num" data-campo="qtd" type="number" min="1" max="999" step="1" value="${a.qtd}" aria-label="Quantidade">
               <button class="btn btn-ghost btn-icone" data-acao="mais" type="button" aria-label="Uma cópia a mais">${svg('mais')}</button>
             </div>
+            <select class="select giro" data-campo="giro" aria-label="Giro no filme" title="Giro no filme">
+              <option value="auto"${a.giro === 'auto' ? ' selected' : ''}>Giro automático</option>
+              <option value="0"${a.giro === '0' ? ' selected' : ''}${cabeNoGiro(a, 0) ? '' : ' disabled'}>Em pé</option>
+              <option value="90"${a.giro === '90' ? ' selected' : ''}${cabeNoGiro(a, 90) ? '' : ' disabled'}>Deitada (90°)</option>
+            </select>
             <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
           </div>
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
@@ -286,12 +300,13 @@
     if (e.key === 'Enter' && e.target.matches('input[data-campo]')) e.target.blur();
   });
   $('lista').addEventListener('change', (e) => {
-    const inp = e.target.closest('input[data-campo]');
+    const inp = e.target.closest('[data-campo]');
     if (!inp) return;
     const arte = arteDe(inp.closest('[data-arte]').dataset.arte);
     if (!arte) return;
     const v = parseFloat(String(inp.value).replace(',', '.'));
-    if (inp.dataset.campo === 'qtd') mudarQtd(arte, v);
+    if (inp.dataset.campo === 'giro') { arte.giro = inp.value; reorganizar(); }
+    else if (inp.dataset.campo === 'qtd') mudarQtd(arte, v);
     else mudarTamanho(arte, inp.dataset.campo, v);
     desenharLista();
     desenhar();
