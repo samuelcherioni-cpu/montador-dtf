@@ -142,17 +142,20 @@
     for (const f of png) {
       try {
         const bytes = new Uint8Array(await f.arrayBuffer());
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
         const dpiArq = Png.lerDPI(bytes);
         const dpiUso = dpiArq && dpiArq >= 50 && dpiArq <= 2400 ? dpiArq : DPI;
         let w = (bitmap.width / dpiUso) * 25.4, h = (bitmap.height / dpiUso) * 25.4;
         const u = larguraUtil();
-        if (w > u) { h = (h * u) / w; w = u; }
+        let reduzida = false;
+        if (w > u) { h = (h * u) / w; w = u; reduzida = true; }
+        // no tamanho original a 300 DPI, o PNG final copia os pixels do arquivo sem recalcular nada
+        const nativo = !reduzida && Math.abs(dpiUso - DPI) < 1;
         const arte = {
           id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), bitmap, url: URL.createObjectURL(f),
           previa: await previa(bitmap), giro: 'auto',
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
-          transparente: temTransparencia(bitmap), qtd: 1,
+          transparente: temTransparencia(bitmap), qtd: 1, nativo, dura: bordaDura(bitmap),
         };
         est.artes.push(arte);
         novas.push(novaPeca(arte));
@@ -176,6 +179,31 @@
     ctx.drawImage(bitmap, 0, 0, c.width, c.height);
     const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
     return URL.createObjectURL(blob);
+  }
+
+  // Borda dura: quase todo pixel é cheio ou vazio (vetor, halftone). Nesse caso, ao mudar o tamanho,
+  // a arte é ampliada/reduzida sem suavizar, para não criar borda meio transparente.
+  function bordaDura(bitmap) {
+    const W = bitmap.width, faixa = Math.min(64, bitmap.height);
+    const c = document.createElement('canvas');
+    c.width = W; c.height = faixa;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.imageSmoothingEnabled = false;
+    let cheios = 0, meios = 0;
+    for (let k = 0; k < 8; k++) {
+      const y = Math.floor(((bitmap.height - faixa) * k) / 7);
+      ctx.clearRect(0, 0, W, faixa);
+      ctx.drawImage(bitmap, 0, y, W, faixa, 0, 0, W, faixa);
+      const d = ctx.getImageData(0, 0, W, faixa).data;
+      for (let i = 3; i < d.length; i += 4) { if (d[i] > 8) { cheios++; if (d[i] < 247) meios++; } }
+    }
+    return cheios > 0 && meios / cheios < 0.02;
+  }
+
+  // Tamanho em pixels que a arte terá no PNG final
+  function pxSaida(a) {
+    if (a.nativo) return { w: a.pxW, h: a.pxH };
+    return { w: Math.max(1, Math.round(a.w * PX_MM)), h: Math.max(1, Math.round(a.h * PX_MM)) };
   }
 
   function temTransparencia(bitmap) {
@@ -211,6 +239,7 @@
     if (campo === 'w') { if (arte.travado) h = (h * mm) / w; w = mm; } else { if (arte.travado) w = (w * mm) / h; h = mm; }
     if (!cabe(w, h)) { avisar(`Não cabe no filme: o lado menor pode ter até ${cm(larguraUtil())} cm.`, true); return false; }
     arte.w = arred(w); arte.h = arred(h);
+    arte.nativo = Math.round(arte.w * PX_MM) === arte.pxW && Math.round(arte.h * PX_MM) === arte.pxH;
     if (arte.giro !== 'auto' && !cabeNoGiro(arte, arte.giro)) {
       arte.giro = 'auto';
       avisar(arte.nome + ': no novo tamanho ela só cabe girada. Giro voltou para automático.', true);
@@ -576,8 +605,11 @@
     try {
       if (document.fonts && est.ident) await document.fonts.load(`700 40px Inter`);
       const pecas = est.pecas.map((p) => {
-        const a = arteDe(p.arte), m = medida(p);
-        return { a, rot: p.rot, x: p.x * PX_MM, y: p.y * PX_MM, w: m.w * PX_MM, h: m.h * PX_MM };
+        const a = arteDe(p.arte), px = pxSaida(a);
+        const umPraUm = px.w === a.pxW && px.h === a.pxH;
+        // posição em pixel inteiro: sem isso o navegador recalcula a borda e ela sai borrada
+        return { a, rot: p.rot, x: Math.round(p.x * PX_MM), y: Math.round(p.y * PX_MM),
+          w: p.rot ? px.h : px.w, h: p.rot ? px.w : px.h, suave: !umPraUm && !a.dura };
       });
       const cv = document.createElement('canvas');
       cv.width = FILME_PX;
@@ -591,9 +623,9 @@
           ctx.setTransform(1, 0, 0, 1, 0, 0);
           ctx.clearRect(0, 0, FILME_PX, n);
           ctx.setTransform(1, 0, 0, 1, 0, -y0);
-          ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';
           for (const q of pecas) {
+            ctx.imageSmoothingEnabled = q.suave;
             if (q.y > y0 + n || q.y + q.h < y0) continue;
             // desenha só a fatia da arte que cai nesta faixa (desenhar a imagem inteira a cada faixa é lento)
             const bmp = q.a.bitmap;
