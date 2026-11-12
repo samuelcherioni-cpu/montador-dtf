@@ -38,6 +38,11 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Versão nos arquivos (o navegador busca o código novo em vez de usar o guardado)
+        run: |
+          v=${GITHUB_SHA::7}
+          sed -i "s/?v=dev/?v=$v/g" site/index.html
+          grep -c "?v=$v" site/index.html
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
