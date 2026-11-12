@@ -147,7 +147,8 @@ button:disabled { cursor: default; opacity: 0.5; }
 .lista-fim { display: flex; justify-content: flex-end; }
 .zoom span { min-width: 56px; }
 .arte-linha { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.select.giro { width: auto; height: 32px; padding: 0 8px; border-radius: 10px; font-size: 0.78rem; flex: 1 1 120px; min-width: 0; }
+.selo-botao { font: inherit; font-size: 0.68rem; cursor: pointer; }
+.selo-botao:hover { filter: brightness(1.2); }
 .qtd { display: flex; align-items: center; gap: 4px; margin-right: auto; }
 .qtd .input { width: 52px; }
 .qtd small { color: var(--faint); font-size: 0.72rem; margin-right: 2px; }

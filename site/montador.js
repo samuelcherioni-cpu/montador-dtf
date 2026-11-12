@@ -210,6 +210,16 @@
     return true;
   }
 
+  // Clique no símbolo de girar: a arte passa para giro manual e vira 90° em relação a como está agora
+  function girarArte(a) {
+    const pecas = est.pecas.filter((p) => p.arte === a.id);
+    const atual = a.giro !== 'auto' ? Number(a.giro) : (pecas.filter((p) => p.rot).length * 2 > pecas.length ? 90 : 0);
+    const nova = atual ? 0 : 90;
+    if (!cabeNoGiro(a, nova)) { avisar(`${a.nome}: ${nova ? 'deitada' : 'em pé'} passa da largura do filme.`, true); return; }
+    a.giro = String(nova);
+    reorganizar();
+  }
+
   // a arte cabe na largura do filme nesse giro? (0 = em pé, 90 = deitada)
   function cabeNoGiro(a, giro) { return (Number(giro) ? a.h : a.w) <= larguraUtil() + 1e-6; }
 
@@ -226,7 +236,8 @@
   const ICONES = {
     menos: '<path d="M6 12h12"/>',
     mais: '<path d="M6 12h12M12 6v12"/>',
-        lixo: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+        girar: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
+    lixo: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     fechado: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     aberto: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   };
@@ -248,6 +259,7 @@
       if (!a.transparente) selos.push('<span class="selo atencao">Sem fundo transparente</span>');
       const deitadas = est.pecas.filter((p) => p.arte === a.id && p.rot).length;
       if (deitadas && a.giro === 'auto') selos.push(`<span class="selo ok">${deitadas === a.qtd ? 'Deitada no filme' : deitadas + ' de ' + a.qtd + ' deitadas no filme'}</span>`);
+      if (a.giro !== 'auto') selos.push('<button class="selo ok selo-botao" data-acao="auto" type="button">Giro manual · voltar ao automático</button>');
       return `<article class="arte glass brilho${selArtes.has(a.id) ? ' marcada' : ''}" data-arte="${a.id}">
         <div class="mini"><img src="${a.previa}" alt=""></div>
         <div class="arte-info">
@@ -266,11 +278,7 @@
               <input class="input curto num" data-campo="qtd" type="number" min="1" max="999" step="1" value="${a.qtd}" aria-label="Quantidade">
               <button class="btn btn-ghost btn-icone" data-acao="mais" type="button" aria-label="Uma cópia a mais">${svg('mais')}</button>
             </div>
-            <select class="select giro" data-campo="giro" aria-label="Giro no filme" title="Giro no filme">
-              <option value="auto"${a.giro === 'auto' ? ' selected' : ''}>Giro automático</option>
-              <option value="0"${a.giro === '0' ? ' selected' : ''}${cabeNoGiro(a, 0) ? '' : ' disabled'}>Em pé</option>
-              <option value="90"${a.giro === '90' ? ' selected' : ''}${cabeNoGiro(a, 90) ? '' : ' disabled'}>Deitada (90°)</option>
-            </select>
+            <button class="btn btn-ghost btn-icone${a.giro !== 'auto' ? ' ativo' : ''}" data-acao="girar" type="button" title="Girar 90° (passa a valer o giro escolhido à mão)" aria-label="Girar 90°">${svg('girar')}</button>
             <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
           </div>
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
@@ -291,6 +299,8 @@
     if (acao === 'mais') mudarQtd(arte, arte.qtd + 1);
     else if (acao === 'menos') mudarQtd(arte, arte.qtd - 1);
     else if (acao === 'travar') arte.travado = !arte.travado;
+    else if (acao === 'girar') girarArte(arte);
+    else if (acao === 'auto') { arte.giro = 'auto'; reorganizar(); }
     else if (acao === 'remover') removerArte(arte);
     desenharLista();
     desenhar();
