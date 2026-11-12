@@ -8,6 +8,7 @@
   const FILME_PX = Math.round(FILME_MM * PX_MM);
   const IDENT_MM = 8;                 // faixa da identificação no fim do filme
   const DPI_MINIMO = 150;
+  const LIMIAR = 128;                 // transparência: de 50% para cima vira cheio, abaixo vira vazio
   const MAX_METROS = 20;
 
   const $ = (id) => document.getElementById(id);
@@ -694,7 +695,10 @@
         const umPraUm = px.w === a.pxW && px.h === a.pxH;
         // posição em pixel inteiro: sem isso o navegador recalcula a borda e ela sai borrada
         return { a, rot: p.rot, x: Math.round(p.x * PX_MM), y: Math.round(p.y * PX_MM),
-          w: deitada(p.rot) ? px.h : px.w, h: deitada(p.rot) ? px.w : px.h, suave: !umPraUm && !a.dura };
+          w: deitada(p.rot) ? px.h : px.w, h: deitada(p.rot) ? px.w : px.h,
+          // ampliada ou reduzida: suave e depois o limiar deixa o contorno liso e duro (como vetor);
+          // no tamanho original, cópia exata dos pixels
+          suave: !umPraUm };
       });
       const cv = document.createElement('canvas');
       cv.width = FILME_PX;
@@ -751,6 +755,12 @@
             }
           }
           const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
+          // Limiar na transparência (como máscara de camada + limiar no Photoshop): todo pixel fica cheio
+          // ou vazio. Borda meio transparente imprime branca no DTF e atrapalha o halftone.
+          for (let i = 3; i < dados.length; i += 4) {
+            if (dados[i] >= LIMIAR) dados[i] = 255;
+            else if (dados[i]) { dados[i] = 0; dados[i - 1] = 0; dados[i - 2] = 0; dados[i - 3] = 0; }
+          }
           await ceder(); // deixa a tela respirar
           return dados;
         },

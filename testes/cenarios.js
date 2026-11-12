@@ -62,11 +62,52 @@ const FORMAS = {
       return d <= borda * 1.08 && ((x % 4) < 2) && ((y % 4) < 2);
     };
   },
+  // polígono aleatório com pontas e reentrâncias (de 5 a 12 vértices, raio sorteado em cada um)
+  poligono: (r) => {
+    const n = r.inteiro(5, 12), raios = [], angs = [];
+    for (let i = 0; i < n; i++) { angs.push((i / n) * Math.PI * 2 + r.entre(-0.25, 0.25)); raios.push(r.entre(0.25, 0.5)); }
+    return (u, v) => {
+      const a = Math.atan2(v - 0.5, u - 0.5), d = Math.hypot(u - 0.5, v - 0.5);
+      let k = 0; const aa = (a + Math.PI * 2) % (Math.PI * 2);
+      while (k < n - 1 && angs[k + 1] % (Math.PI * 2) < aa) k++;
+      const a0 = angs[k], a1 = k + 1 < n ? angs[k + 1] : angs[0] + Math.PI * 2;
+      const f = Math.min(1, Math.max(0, (aa - a0) / (a1 - a0 || 1)));
+      return d <= raios[k] * (1 - f) + raios[(k + 1) % n] * f;
+    };
+  },
+  // recorte em blocos: retângulos de tamanhos sorteados juntos (montagem de estampa)
+  blocos: (r) => {
+    const q = r.inteiro(2, 6), b = [];
+    for (let i = 0; i < q; i++) { const x0 = r.entre(0, 0.7), y0 = r.entre(0, 0.7); b.push([x0, y0, x0 + r.entre(0.15, 1 - x0), y0 + r.entre(0.15, 1 - y0)]); }
+    return (u, v) => b.some(([x0, y0, x1, y1]) => u >= x0 && u <= x1 && v >= y0 && v <= y1);
+  },
   estrela: () => (u, v) => {
     const x = u - 0.5, y = v - 0.5, a = Math.atan2(y, x), rr = Math.hypot(x, y);
     return rr <= 0.5 * (0.55 + 0.45 * Math.abs(Math.cos(2.5 * a)));
   },
 };
+
+// Halftone em qualquer formato: numa faixa de até 1,2 cm junto da borda, o desenho vira pontilhado,
+// com pontos cada vez menores e mais espaçados para fora (como o degradê de um halftone de verdade).
+function comHalftone(G, faixa) {
+  const { cols, linhas, g } = G;
+  // distância (em mm, aproximada) de cada pixel com desenho até o vazio mais próximo, pelas 4 direções
+  const dist = new Uint16Array(cols * linhas).fill(65535);
+  for (let y = 0; y < linhas; y++) {
+    let d = 0; for (let x = 0; x < cols; x++) { d = g[y * cols + x] ? d + 1 : 0; dist[y * cols + x] = Math.min(dist[y * cols + x], d); }
+    d = 0; for (let x = cols - 1; x >= 0; x--) { d = g[y * cols + x] ? d + 1 : 0; dist[y * cols + x] = Math.min(dist[y * cols + x], d); }
+  }
+  for (let x = 0; x < cols; x++) {
+    let d = 0; for (let y = 0; y < linhas; y++) { d = g[y * cols + x] ? d + 1 : 0; dist[y * cols + x] = Math.min(dist[y * cols + x], d); }
+    d = 0; for (let y = linhas - 1; y >= 0; y--) { d = g[y * cols + x] ? d + 1 : 0; dist[y * cols + x] = Math.min(dist[y * cols + x], d); }
+  }
+  for (let y = 0; y < linhas; y++) for (let x = 0; x < cols; x++) {
+    const i = y * cols + x; if (!g[i] || dist[i] > faixa) continue;
+    const passo = 2 + Math.round((1 - dist[i] / faixa) * 3); // pontos mais espaçados perto da borda
+    if (x % passo !== 0 || y % passo !== 0) g[i] = 0;
+  }
+  return G;
+}
 
 // margem transparente em volta (muitos PNGs vêm com sobra)
 function comMargem(G, m) {
@@ -125,9 +166,11 @@ function areaEngordada(G, r) {
   return area;
 }
 
-function arte(r, tipo, wcm, hcm) {
+let HALFTONE_AS_VEZES = false; // ligado no conjunto real
+function arte(r, tipo, wcm, hcm, comHT) {
   const cols = Math.max(10, Math.round(wcm * 10)), linhas = Math.max(10, Math.round(hcm * 10));
   let G = pintar(grade(cols, linhas), FORMAS[tipo](r));
+  if (comHT === true || (comHT === undefined && HALFTONE_AS_VEZES && r() < 0.5)) { G = comHalftone(G, r.inteiro(4, 12)); tipo += '+halftone'; }
   const m = r() < 0.35 ? r.inteiro(2, 25) : 0; // até 2,5 cm de sobra transparente
   G = comMargem(G, m);
   if (G.cols > LARGURA_UTIL && G.linhas > LARGURA_UTIL) return null;
@@ -165,8 +208,11 @@ const MAX = 37;
 const grande = (r) => () => [r.entre(22, MAX), r.entre(25, MAX)];
 const media = (r) => () => [r.entre(10, 25), r.entre(10, 25)];
 const pequena = (r) => () => [r.entre(3, 10), r.entre(3, 10)];
-const FORMAS_ESTAMPA = ['mancha', 'mancha', 'retrato', 'retrato', 'retangulo', 'elipse', 'logoRaios', 'texto', 'estrela', 'U', 'anel', 'triangulo', 'L', 'diagonal'];
+const FORMAS_ESTAMPA = ['mancha', 'mancha', 'retrato', 'retrato', 'retangulo', 'elipse', 'logoRaios', 'texto', 'estrela', 'U', 'anel', 'triangulo', 'L', 'diagonal', 'poligono', 'poligono', 'blocos', 'blocos'];
+// tamanho realmente aleatório: proporções de faixa fina e comprida até quase quadrado, sempre até 37 cm
+const qualquer = (r) => () => { const t = r(); if (t < 0.2) return r() < 0.5 ? [r.entre(3, 8), r.entre(20, MAX)] : [r.entre(20, MAX), r.entre(3, 8)]; const a = r.entre(3, MAX); return [a, Math.min(MAX, Math.max(3, a * r.entre(0.4, 2.5)))]; };
 const TIPOS_REAL = {
+  'formatos variados': (r) => lista(r, r.inteiro(4, 14), qualquer(r), () => r.inteiro(1, 12), ['poligono', 'blocos', 'L', 'U', 'triangulo', 'diagonal', 'texto', 'retangulo', 'estrela', 'logoRaios', 'retrato', 'mancha']),
   'muitas grandes': (r) => lista(r, r.inteiro(3, 10), grande(r), () => r.inteiro(2, 8), FORMAS_ESTAMPA),
   'muitas pequenas': (r) => lista(r, r.inteiro(5, 15), pequena(r), () => r.inteiro(10, 30), FORMAS_ESTAMPA),
   'metade de cada': (r) => [
@@ -175,7 +221,8 @@ const TIPOS_REAL = {
   ],
   'médias': (r) => lista(r, r.inteiro(4, 10), media(r), () => r.inteiro(2, 10), FORMAS_ESTAMPA),
   'poucas grandes': (r) => lista(r, r.inteiro(3, 8), grande(r), () => r.inteiro(1, 2), FORMAS_ESTAMPA),
-  'halftone': (r) => lista(r, r.inteiro(2, 8), () => [r.entre(15, MAX), r.entre(15, MAX)], () => r.inteiro(1, 6), ['mancha', 'retrato']),
+  // halftone em todo tipo de formato (não só redondo)
+  'halftone': (r) => lista(r, r.inteiro(2, 8), qualquer(r), () => r.inteiro(1, 6), FORMAS_ESTAMPA, true),
   'tudo misturado': (r) => [
     ...lista(r, r.inteiro(1, 5), grande(r), () => r.inteiro(1, 6), FORMAS_ESTAMPA),
     ...lista(r, r.inteiro(1, 6), media(r), () => r.inteiro(1, 8), FORMAS_ESTAMPA),
@@ -194,13 +241,13 @@ const TIPOS_REAL = {
     return [...base, ...ultima];
   },
 };
-const CONJUNTOS = { geral: () => TIPOS_FILA, real: () => TIPOS_REAL };
+const CONJUNTOS = { geral: () => { HALFTONE_AS_VEZES = false; return TIPOS_FILA; }, real: () => { HALFTONE_AS_VEZES = true; return TIPOS_REAL; } };
 
-function lista(r, tipos, tamanho, quantidade, formas = NOMES_FORMAS) {
+function lista(r, tipos, tamanho, quantidade, formas = NOMES_FORMAS, comHT) {
   const saida = [];
   for (let i = 0; i < tipos; i++) {
     const [w, h] = tamanho();
-    const a = arte(r, r.um(formas), w, h);
+    const a = arte(r, r.um(formas), w, h, comHT);
     if (a) saida.push({ ...a, qtd: quantidade() });
   }
   return saida;

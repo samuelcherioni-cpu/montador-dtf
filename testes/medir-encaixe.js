@@ -15,9 +15,11 @@ if (!isMainThread) {
   const tempo = (c) => { if (workerData.ms !== 'auto') return Number(workerData.ms); const n = c.artes.reduce((s, a) => s + a.qtd, 0); return Math.min(8000, Math.max(2000, 1500 + n * 40)); };
   for (let i = workerData.inicio; i < workerData.n; i += workerData.passo) {
     const c = gerarCenario(i, workerData.semente, workerData.conjunto); // gera, mede e descarta: memória baixa
-    saida.push(avaliar(Encaixe, c, { limiteMs: tempo(c) }));
+    const r = avaliar(Encaixe, c, { limiteMs: tempo(c) });
+    saida.push(r);
+    parentPort.postMessage({ parcial: r }); // andamento
   }
-  parentPort.postMessage(saida);
+  parentPort.postMessage({ fim: saida });
   return;
 }
 
@@ -30,9 +32,20 @@ const conjunto = arg('conjunto', 'geral');
 const passo = Math.max(1, Number(arg('nucleos', Math.floor(os.cpus().length / 2))));
 
 const inicio = Date.now();
+const feitos = [];
 Promise.all(Array.from({ length: passo }, (_, k) => new Promise((ok, falha) => {
   const w = new Worker(__filename, { workerData: { n, ms, semente, encaixe, inicio: k, passo, conjunto } });
-  w.once('message', ok);
+  w.on('message', (msg) => {
+    if (msg.fim) return ok(msg.fim);
+    feitos.push(msg.parcial);
+    if (feitos.length % 100 === 0 || feitos.length === n) {
+      const ap = feitos.reduce((s, r) => s + r.aproveitamento, 0) / feitos.length;
+      const ult = feitos.filter((r) => r.aumentou !== null), ok2 = ult.filter((r) => r.aumentou === 0).length;
+      console.log(`  andamento: ${feitos.length} de ${n} filas · aproveitamento médio até aqui ${(ap * 100).toFixed(1)}%` +
+        (ult.length ? ` · pequena por último sem aumentar a folha: ${ok2} de ${ult.length}` : '') +
+        ` · erros: ${feitos.filter((r) => r.erro || r.fora).length} · ${((Date.now() - inicio) / 60000).toFixed(1)} min`);
+    }
+  });
   w.once('error', falha);
 }))).then((partes) => {
   const res = partes.flat().sort((a, b) => a.id - b.id);
