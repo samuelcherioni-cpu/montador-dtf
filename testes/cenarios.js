@@ -331,4 +331,4 @@ function avaliar(Encaixe, c, opcoes = {}) {
   };
 }
 
-module.exports = { CONJUNTOS, gerarCenario, gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };
+module.exports = { _arte: (...a) => arte(...a), CONJUNTOS, gerarCenario, gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };

@@ -184,6 +184,11 @@
       let opcoes;
       const daForma = jeito.porForma && jeito.porForma.get(n.forma || n.id);
       if (!girar || n.fixo) opcoes = [n.rot];
+      else if (daForma === 'pe' || daForma === 'deitado') {
+        const deit = giros(n).filter((g) => g % 180), pe = giros(n).filter((g) => !(g % 180));
+        const quer = daForma === 'deitado' ? deit : pe, outro = daForma === 'deitado' ? pe : deit;
+        opcoes = largDesenho(n.perfis[quer[0]]) <= colunas ? quer : outro;
+      }
       else if (daForma !== undefined && daForma !== 'livre' && largDesenho(n.perfis[daForma]) <= colunas) opcoes = [daForma];
       else if (jeito.giro === 'livre' || daForma === 'livre') opcoes = giros(n);
       else {
@@ -346,7 +351,14 @@
 
   // Tenta várias combinações de ordem e de giro e fica com a que gasta menos filme.
   // limiteMs: tempo máximo de tentativas (as primeiras rodam sempre).
-  function encaixar({ largura, espaco = 5, girar = true, novas, limiteMs = 700, aoMelhorar }) {
+  // Assinatura de uma montagem (posição e giro de cada peça), para reconhecer a mesma montagem
+  function assinatura(pos) {
+    return Object.keys(pos).sort().map((k) => k + ':' + Math.round(pos[k].x) + ',' + Math.round(pos[k].y) + ',' + pos[k].rot).join(';');
+  }
+
+  // semente: muda o sorteio (botão "Outra montagem"); evitar: assinatura da montagem que não serve
+  // (a que já está na tela), para sempre devolver um arranjo diferente
+  function encaixar({ largura, espaco = 5, girar = true, novas, limiteMs = 700, aoMelhorar, semente: outra = 0, evitar = null }) {
     const lista = novas.map(prepararPerfis);
     const area = (n) => n.w * n.h;
     const maior = (n) => Math.max(n.w, n.h);
@@ -365,6 +377,7 @@
     let melhor = null, feitas = 0, semMelhora = 0;
     const guardar = (r) => {
       feitas++;
+      if (evitar && assinatura(r.pos) === evitar) { semMelhora++; return; } // é a montagem que já está na tela
       // menos peças de fora; depois filme mais curto; empatando, tudo mais em cima e junto
       // (o espaço que sobra fica contínuo embaixo e do lado)
       const melhorou = !melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length &&
@@ -374,27 +387,42 @@
     };
     // a busca usa 80% do tempo; o resto fica para a passada de tapar buracos no fim
     const acabou = () => agora() - inicio > limiteMs * 0.8;
+    if (outra) {
+      let k = outra >>> 0;
+      for (let i = tentativas.length - 1; i > 0; i--) { k = (Math.imul(k, 1103515245) + 12345) >>> 0; const j = k % (i + 1); [tentativas[i], tentativas[j]] = [tentativas[j], tentativas[i]]; }
+    }
     for (const [ordem, giro, criterio] of tentativas) {
       if (feitas >= 3 && acabou()) break;
       if (!girar && giro !== 'livre') continue;
       guardar(rodada(largura, espaco, girar, ordem, { giro, criterio }));
     }
 
-    let semente = 20261112 + lista.length * 7919;
+    let semente = (20261112 + lista.length * 7919 + outra * 104729) >>> 0;
     const sorte = () => ((semente = (Math.imul(semente, 1103515245) + 12345) >>> 0) / 4294967296);
     // artes que podem ficar tanto em pé quanto deitadas (as outras não têm escolha)
     const formas = [...new Set(lista.filter((n) => girar && !n.fixo && largDesenho(n.perfis[0]) <= Math.floor(largura / CELULA) &&
       largDesenho(n.perfis[90]) <= Math.floor(largura / CELULA)).map((n) => n.forma || n.id))];
 
     const giroDaForma = new Map(lista.map((n) => [n.forma || n.id, giros(n)]));
-    // 1) Poucas artes diferentes: testa TODAS as combinações de giro (cada arte em pé ou deitada),
-    //    em duas ordens. Assim a combinação que alguém acharia testando à mão sempre entra na conta.
-    if (formas.length && formas.length <= 9) {
-      const total = 1 << formas.length;
-      for (const ordem of [porArea, porMaior]) {
-        for (let m = 0; m < total && !acabou(); m++) {
-          const porForma = new Map(formas.map((f, i) => [f, (m >> i) & 1 ? 90 : 0]));
-          guardar(rodada(largura, espaco, girar, ordem, { giro: 'livre', criterio: 'fundo', porForma }));
+    // 1) As artes grandes é que decidem o tamanho da folha: testa TODAS as combinações de em pé /
+    //    deitada das 8 maiores (as pequenas ficam livres para tapar os buracos), em duas ordens e com
+    //    as duas regras de posição principais. Assim a combinação que alguém acharia girando à mão
+    //    sempre entra na conta, mesmo com muitas artes na fila.
+    const areaDaForma = new Map();
+    for (const n of lista) { const f = n.forma || n.id; areaDaForma.set(f, Math.max(areaDaForma.get(f) || 0, n.w * n.h)); }
+    const grandes = formas.filter((f) => areaDaForma.get(f) >= 100 * 100) // a partir de ~10 x 10 cm
+      .sort((a, b) => areaDaForma.get(b) - areaDaForma.get(a)).slice(0, 8);
+    if (grandes.length) {
+      // no máximo um terço do tempo aqui (o resto fica para a busca local, que refina a melhor);
+      // começa pelas combinações mais prováveis: todas iguais, depois uma diferente, duas diferentes...
+      const k = grandes.length, total = 1 << k, prazoGiros = inicio + limiteMs * 0.33;
+      const conta = (m) => { let c = 0; for (; m; m &= m - 1) c++; return c; };
+      const mascaras = [...Array(total).keys()].sort((x, y) => Math.min(conta(x), k - conta(x)) - Math.min(conta(y), k - conta(y)) || x - y);
+      for (const [ordem, criterio] of [[porArea, 'fundo'], [porMaior, 'fundo'], [porArea, 'topo']]) {
+        for (const m of mascaras) {
+          if (agora() > prazoGiros) break;
+          const porForma = new Map(grandes.map((f, i) => [f, (m >> i) & 1 ? 'deitado' : 'pe']));
+          guardar(rodada(largura, espaco, girar, ordem, { giro: 'livre', criterio, porForma }));
         }
       }
     }
@@ -410,10 +438,13 @@
       for (const f of formas) { const ops = giroDaForma.get(f) || [0, 90]; porForma.set(f, sorte() < 0.4 ? 'livre' : ops[Math.floor(sorte() * ops.length)]); }
       return { ordem, jeito: sorte() < 0.5 ? { giro: 'livre', criterio: qual(), porForma } : { giro: 'livre', criterioDaPeca: qual, porForma } };
     };
-    let atual = melhor;
-    while (!acabou() && semMelhora < 400) {
+    // se nenhuma montagem diferente apareceu até aqui, parte de um sorteio
+    if (!melhor) guardar(rodada(largura, espaco, girar, [...lista].sort(() => sorte() - 0.5), { giro: 'livre', criterio: 'fundo' }));
+    let atual = melhor || rodada(largura, espaco, girar, lista, { giro: 'livre', criterio: 'fundo' });
+    let parado = 0; // passos sem a montagem atual melhorar
+    while (!acabou() && semMelhora < 1500) {
       let receita;
-      if (sorte() < 0.15 || !atual.receita) receita = sortear();
+      if (sorte() < (outra ? 0.3 : 0.15) || !atual.receita) receita = sortear();
       else {
         const base = atual.receita;
         const ordem = [...base.ordem];
@@ -427,20 +458,25 @@
           ordem.splice(Math.floor(sorte() * i), 0, p);
         } else if (t < 0.85 && formas.length) { // vira o giro de uma arte
           const f = formas[Math.floor(sorte() * formas.length)];
-          const ops = [...(giroDaForma.get(f) || [0, 90]), 'livre'];
+          const ops = [...(giroDaForma.get(f) || [0, 90]), 'livre', 'pe', 'deitado'];
           jeito.porForma.set(f, ops[Math.floor(sorte() * ops.length)]);
         } else { delete jeito.criterioDaPeca; jeito.criterio = qual(); }
         receita = { ordem, jeito };
       }
       const r = rodada(largura, espaco, girar, receita.ordem, receita.jeito);
       guardar(r);
+      if (evitar && assinatura(r.pos) === evitar) continue;
       const naoPiorou = r.fora.length < atual.fora.length || (r.fora.length === atual.fora.length && (r.fundo < atual.fundo || (r.fundo === atual.fundo && r.soma <= atual.soma)));
-      if (naoPiorou) atual = r;
-      else if (sorte() < 0.03) atual = melhor; // volta para a melhor de todas de vez em quando
+      if (naoPiorou) { if (r.fundo < atual.fundo) parado = 0; else parado++; atual = r; }
+      else { parado++; if (sorte() < 0.03) atual = melhor; } // volta para a melhor de todas de vez em quando
+      // empacou: recomeça de um sorteio novo (mesmo pior), para não ficar preso no mesmo caminho
+      if (parado > 60) { const nova = sortear(); atual = rodada(largura, espaco, girar, nova.ordem, nova.jeito); guardar(atual); parado = 0; }
     }
+    if (!melhor) melhor = atual; // (só acontece se todas as tentativas deram a mesma montagem a evitar)
     // tapa buracos na melhor montagem (e também na segunda volta, se ainda houver tempo)
     const compacta = compactar(largura, espaco, girar, lista, melhor, inicio + Math.max(limiteMs, 50), agora);
-    if (compacta !== melhor && (compacta.fundo < melhor.fundo || (compacta.fundo === melhor.fundo && compacta.soma < melhor.soma))) {
+    if (compacta !== melhor && (!evitar || assinatura(compacta.pos) !== evitar) &&
+      (compacta.fundo < melhor.fundo || (compacta.fundo === melhor.fundo && compacta.soma < melhor.soma))) {
       melhor = compacta;
       if (aoMelhorar) aoMelhorar(melhor);
     }
@@ -467,7 +503,7 @@
   // Onde está o desenho dentro da caixa da peça (em células): {esq, dir, primeira, ultima}
   function limites(p) { medir(p); return { esq: p.esq, dir: p.dir, primeira: p.primeira, ultima: p.ultima }; }
 
-  const Encaixe = { encaixar, acrescentar, sobrepoe, perfilRetangulo, limites, CELULA };
+  const Encaixe = { encaixar, acrescentar, assinatura, sobrepoe, perfilRetangulo, limites, CELULA };
   if (typeof module === 'object' && module.exports) module.exports = Encaixe;
   else raiz.Encaixe = Encaixe;
 })(typeof self !== 'undefined' ? self : this);

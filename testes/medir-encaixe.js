@@ -11,8 +11,8 @@ if (!isMainThread) {
   const { gerarCenario, avaliar } = require('./cenarios.js');
   const Encaixe = require(workerData.encaixe);
   const saida = [];
-  // --ms auto: o mesmo tempo que a tela dá ao trabalhador (de 2 a 8 s, conforme o número de peças)
-  const tempo = (c) => { if (workerData.ms !== 'auto') return Number(workerData.ms); const n = c.artes.reduce((s, a) => s + a.qtd, 0); return Math.min(8000, Math.max(2000, 1500 + n * 40)); };
+  // --ms auto: o mesmo tempo que a tela dá ao trabalhador (de 4 a 12 s, conforme o número de peças)
+  const tempo = (c) => { if (workerData.ms !== 'auto') return Number(workerData.ms); const n = c.artes.reduce((s, a) => s + a.qtd, 0); return Math.min(12000, Math.max(4000, 3000 + n * 60)); };
   for (let i = workerData.inicio; i < workerData.n; i += workerData.passo) {
     const c = gerarCenario(i, workerData.semente, workerData.conjunto); // gera, mede e descarta: memória baixa
     const r = avaliar(Encaixe, c, { limiteMs: tempo(c) });

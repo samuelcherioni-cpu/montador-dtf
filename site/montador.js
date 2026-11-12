@@ -12,7 +12,7 @@
   const MAX_METROS = 20;
 
   const $ = (id) => document.getElementById(id);
-  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 1, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '' };
+  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 1, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '', semente: 0, anteriores: [] };
   let seq = 0;
 
   const fmt = (n, c = 1) => n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c });
@@ -76,7 +76,8 @@
   function encaixarPecas(pecas, novasIds) {
     if (!pecas.length) { pararOtimizacao(); return; }
     // montagem rápida na hora; o trabalhador em segundo plano continua procurando uma folha mais curta
-    let r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(pecas), limiteMs: 150 });
+    let r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(pecas), limiteMs: 150, semente: est.semente });
+    esquecerAnterior();
     if (novasIds && novasIds.size) {
       // peças acrescentadas: também tenta só encaixá-las na montagem que já existia (num buraco do
       // começo, do meio ou do fim). Fica a melhor das duas: se a nova couber, a folha não cresce.
@@ -100,39 +101,51 @@
   // ---------- otimização em segundo plano ----------
   // Um trabalhador (Web Worker) roda o encaixe por alguns segundos sem travar a tela e manda cada
   // montagem melhor que encontrar. Qualquer mudança na fila cancela e recomeça.
-  let trabalhador = null, pedidoAtual = 0, otimizando = false, melhorFundo = Infinity;
+  // Vários trabalhadores ao mesmo tempo (até 4, conforme os núcleos do aparelho), cada um com um
+  // sorteio diferente: o resultado deixa de depender da sorte de um sorteio só. Vale o melhor.
+  let trabalhadores = [], pedidoAtual = 0, otimizando = false, melhorFundo = Infinity;
   const versao = (document.querySelector('script[src^="montador.js"]') || {}).getAttribute?.('src')?.split('?')[1] || '';
+  const QUANTOS = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
   function pararOtimizacao() {
-    if (trabalhador) { trabalhador.terminate(); trabalhador = null; }
+    for (const t of trabalhadores) t.terminate();
+    trabalhadores = [];
     if (otimizando) { otimizando = false; atualizarEstado(sobrepostas(), comprimento()); }
   }
-  function otimizar(fundoAtual) {
+  function otimizar(fundoAtual, evitar = null) {
     pararOtimizacao();
     if (typeof Worker === 'undefined' || !est.pecas.length) return;
-    try { trabalhador = new Worker('trabalho-encaixe.js' + (versao ? '?' + versao : '')); } catch (e) { trabalhador = null; return; }
     const id = ++pedidoAtual;
     melhorFundo = fundoAtual;
-    otimizando = true;
-    // mais peças, mais tempo (de 2 a 8 s)
-    const limiteMs = Math.min(8000, Math.max(2000, 1500 + est.pecas.length * 40));
-    trabalhador.onmessage = (e) => {
-      const m = e.data;
-      if (m.id !== pedidoAtual) return;
-      if (m.tipo === 'melhor' && !m.fora.length && m.fundo < melhorFundo - 0.01) {
-        melhorFundo = m.fundo;
-        const deitadasAntes = est.pecas.map((p) => deitada(p.rot)).join();
-        aplicar(m.pos);
-        desenhar();
-        // a lista só é redesenhada se mudou o que ela mostra (e nunca com alguém digitando nela)
-        if (deitadasAntes !== est.pecas.map((p) => deitada(p.rot)).join() && !$('lista').contains(document.activeElement)) desenharLista();
-      } else if (m.tipo === 'fim') {
-        otimizando = false;
-        if (trabalhador) { trabalhador.terminate(); trabalhador = null; }
-        atualizarEstado(sobrepostas(), comprimento());
-      }
+    // mais peças, mais tempo (de 4 a 12 s); roda em segundo plano, sem travar a tela
+    const limiteMs = Math.min(12000, Math.max(4000, 3000 + est.pecas.length * 60));
+    const novas = pedidoDeEncaixe(est.pecas, true);
+    let ativos = 0;
+    const terminou = (t) => {
+      t.terminate();
+      trabalhadores = trabalhadores.filter((x) => x !== t);
+      if (--ativos <= 0 && id === pedidoAtual) { otimizando = false; atualizarEstado(sobrepostas(), comprimento()); }
     };
-    trabalhador.onerror = () => { otimizando = false; trabalhador = null; atualizarEstado(sobrepostas(), comprimento()); };
-    trabalhador.postMessage({ id, largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(est.pecas, true), limiteMs });
+    for (let k = 0; k < QUANTOS; k++) {
+      let t;
+      try { t = new Worker('trabalho-encaixe.js' + (versao ? '?' + versao : '')); } catch (e) { break; }
+      trabalhadores.push(t);
+      ativos++;
+      t.onmessage = (e) => {
+        const m = e.data;
+        if (m.id !== pedidoAtual) return;
+        if (m.tipo === 'melhor' && !m.fora.length && m.fundo < melhorFundo - 0.01) {
+          melhorFundo = m.fundo;
+          const deitadasAntes = est.pecas.map((p) => deitada(p.rot)).join();
+          aplicar(m.pos);
+          desenhar();
+          // a lista só é redesenhada se mudou o que ela mostra (e nunca com alguém digitando nela)
+          if (deitadasAntes !== est.pecas.map((p) => deitada(p.rot)).join() && !$('lista').contains(document.activeElement)) desenharLista();
+        } else if (m.tipo === 'fim') terminou(t);
+      };
+      t.onerror = () => terminou(t);
+      t.postMessage({ id, largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas, limiteMs, semente: (est.semente * 7 + k * 7919) >>> 0, evitar });
+    }
+    otimizando = ativos > 0;
   }
 
   // Formato real da arte: em cada linha de 1 mm, onde começa e termina a parte não transparente.
@@ -149,7 +162,7 @@
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       girarContexto(ctx, rot, cols, linhas);
-      ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C);
+      ctx.drawImage(a.mini, 0, 0, a.w / C, a.h / C);
       const d = ctx.getImageData(0, 0, cols, linhas).data;
       // cada linha guarda todos os trechos com desenho; buracos de até 3 mm são tratados como cheios
       // (não cabe nada neles e deixa o encaixe mais rápido)
@@ -191,6 +204,44 @@
     if (!novasIds) for (const p of est.pecas) p.rot = 0;
     encaixarPecas(est.pecas, novasIds);
   }
+  // ---------- outra montagem / anterior ----------
+  // posições relativas à área útil (como o encaixe devolve), para reconhecer a montagem atual
+  function posicoesAtuais() {
+    const pos = {};
+    for (const p of est.pecas) pos[p.id] = { x: Math.round(p.x - est.margem), y: Math.round(p.y - est.margem), rot: p.rot };
+    return pos;
+  }
+  function esquecerAnterior() { est.anteriores = []; $('btnAnterior').hidden = true; }
+  // Gera a fila de outra maneira, com as mesmas medidas de cada arte: troca o sorteio e descarta a
+  // montagem que está na tela. Guarda a atual para o botão "Anterior".
+  function outraMontagem() {
+    if (!est.pecas.length) return;
+    pararOtimizacao();
+    const atual = posicoesAtuais(), evitar = Encaixe.assinatura(atual);
+    const guardada = { pos: atual, semente: est.semente };
+    est.semente = (est.semente + 1 + Math.floor(Math.random() * 1000)) >>> 0;
+    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(est.pecas), limiteMs: 300, semente: est.semente, evitar });
+    aplicar(r.pos);
+    // histórico: cada 'Anterior' volta um passo, até a montagem de antes do primeiro clique
+    est.anteriores.push(guardada);
+    if (est.anteriores.length > 30) est.anteriores.shift();
+    $('btnAnterior').hidden = false;
+    est.sel.clear();
+    desenhar();
+    desenharLista();
+    otimizar(r.fundo, evitar);
+  }
+  function voltarAnterior() {
+    const volta = est.anteriores.pop();
+    if (!volta) return;
+    pararOtimizacao();
+    aplicar(volta.pos);
+    est.semente = volta.semente;
+    if (!est.anteriores.length) $('btnAnterior').hidden = true;
+    desenhar();
+    desenharLista();
+  }
+
   function organizar() {
     reorganizar();
     est.sel.clear();
@@ -227,13 +278,20 @@
         if (w > u) { h = (h * u) / w; w = u; reduzida = true; }
         // no tamanho original a 300 DPI, o PNG final copia os pixels do arquivo sem recalcular nada
         const nativo = !reduzida && Math.abs(dpiUso - DPI) < 1;
+        const mini = await previa(bitmap);
         const arte = {
-          id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), bitmap, url: URL.createObjectURL(f),
-          previa: await previa(bitmap), giro: 'auto',
+          id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), arquivo: f, url: URL.createObjectURL(f),
+          previa: mini.url, mini: mini.bitmap, giro: 'auto',
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
           transparente: temTransparencia(bitmap), qtd: 1, nativo, dura: bordaDura(bitmap),
         };
+        // A imagem cheia sai da memória: uma arte de 35 x 37 cm aberta ocupa uns 60 MB, e 70 delas
+        // travariam o navegador. Ela é aberta de novo só na hora de gerar o PNG, uma por vez.
+        if (bitmap.close) bitmap.close();
+        perfis(arte); // formato da arte calculado já no carregamento, uma por vez (não tudo junto no fim)
         novas.push(arte);
+        $('estado').textContent = 'Carregando ' + novas.length + ' de ' + png.length + '…';
+        await ceder(); // deixa a tela respirar entre um arquivo e outro
       } catch (e) {
         avisar(`Não foi possível abrir ${f.name}.`, true);
       }
@@ -248,7 +306,8 @@
   }
   const arred = (mm) => Math.round(mm * 10) / 10;
 
-  // Cópia leve (até 512 px) só para mostrar na tela; o PNG final usa sempre a imagem original
+  // Cópia leve (até 512 px) para mostrar na tela e ler o formato da arte (o encaixe trabalha em
+  // milímetros, e 512 px dão mais de 1 ponto por mm numa arte de 37 cm); o PNG final usa o original
   async function previa(bitmap) {
     const k = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
     const c = document.createElement('canvas');
@@ -257,7 +316,7 @@
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(bitmap, 0, 0, c.width, c.height);
     const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
-    return URL.createObjectURL(blob);
+    return { url: URL.createObjectURL(blob), bitmap: await createImageBitmap(c) };
   }
 
   // Borda dura: quase todo pixel é cheio ou vazio (vetor, halftone). Nesse caso, ao mudar o tamanho,
@@ -348,7 +407,7 @@
     est.artes = est.artes.filter((a) => a !== arte);
     URL.revokeObjectURL(arte.url);
     URL.revokeObjectURL(arte.previa);
-    if (arte.bitmap.close) arte.bitmap.close();
+    if (arte.mini && arte.mini.close) arte.mini.close();
     reorganizar();
   }
 
@@ -533,71 +592,13 @@
     el.textContent = txt;
     el.className = 'estado num ' + cls;
     $('btnBaixar').disabled = !pode;
+    $('btnOutra').disabled = !n;
   }
   function areaPecas() { return est.pecas.reduce((s, p) => s + perfis(arteDe(p.arte)).area, 0); }
 
-  // ---------- arrastar e selecionar ----------
-  function marcarSelecao() {
-    for (const d of $('filme').querySelectorAll('[data-peca]')) d.classList.toggle('sel', est.sel.has(d.dataset.peca));
-    const artes = new Set(est.pecas.filter((p) => est.sel.has(p.id)).map((p) => p.arte));
-    for (const c of $('lista').querySelectorAll('[data-arte]')) c.classList.toggle('marcada', artes.has(c.dataset.arte));
-  }
-  let arrasto = null;
-  $('filme').addEventListener('pointerdown', (e) => {
-    if (e.target.closest('[data-peca]')) pararOtimizacao();
-    const el = e.target.closest('[data-peca]');
-    if (!el) { if (est.sel.size) { est.sel.clear(); marcarSelecao(); } return; }
-    const id = el.dataset.peca;
-    if (e.shiftKey || e.ctrlKey || e.metaKey) {
-      if (est.sel.has(id)) est.sel.delete(id); else est.sel.add(id);
-      marcarSelecao();
-      return;
-    }
-    if (!est.sel.has(id)) { est.sel.clear(); est.sel.add(id); }
-    e.preventDefault();
-    const s = escala();
-    const pecas = est.pecas.filter((p) => est.sel.has(p.id));
-    arrasto = { x0: e.clientX, y0: e.clientY, s, mexeu: false, pecas: pecas.map((p) => ({ p, x: p.x, y: p.y, m: medida(p), g: desenho(p) })), el };
-    $('filme').setPointerCapture(e.pointerId);
-    marcarSelecao();
-  });
-  $('filme').addEventListener('pointermove', (e) => {
-    if (!arrasto) return;
-    let dx = (e.clientX - arrasto.x0) / arrasto.s, dy = (e.clientY - arrasto.y0) / arrasto.s;
-    if (!arrasto.mexeu && Math.hypot(dx, dy) * arrasto.s < 3) return;
-    arrasto.mexeu = true;
-    // o desenho do grupo inteiro fica dentro da área útil
-    for (const q of arrasto.pecas) {
-      dx = Math.max(dx, est.margem - q.g.x0);
-      dx = Math.min(dx, FILME_MM - est.margem - q.g.x1);
-      dy = Math.max(dy, est.margem - q.g.y0);
-    }
-    const filme = $('filme');
-    for (const q of arrasto.pecas) {
-      q.p.x = Math.round((q.x + dx) * 10) / 10;
-      q.p.y = Math.round((q.y + dy) * 10) / 10;
-      const d = filme.querySelector(`[data-peca="${q.p.id}"]`);
-      if (d) { d.style.left = q.p.x * arrasto.s + 'px'; d.style.top = q.p.y * arrasto.s + 'px'; d.classList.add('movendo'); }
-    }
-  });
-  const soltar = () => { if (arrasto) { const m = arrasto.mexeu; arrasto = null; if (m) desenhar(); } };
-  $('filme').addEventListener('pointerup', soltar);
-  $('filme').addEventListener('pointercancel', soltar);
-
+  // A folha é só para ver: quem posiciona as artes é o sistema (sem arrastar à mão).
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('modalBaixar').hidden) { fecharModal(); return; }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && est.sel.size && !e.target.closest('input, select, textarea')) {
-      e.preventDefault();
-      const sai = new Set(est.sel);
-      est.pecas = est.pecas.filter((p) => !sai.has(p.id));
-      est.sel.clear();
-      for (const a of [...est.artes]) {
-        a.qtd = est.pecas.filter((p) => p.arte === a.id).length;
-        if (!a.qtd) removerArte(a);
-      }
-      reorganizar();
-      desenharLista(); desenhar();
-    }
+    if (e.key === 'Escape' && !$('modalBaixar').hidden) fecharModal();
   });
 
   // ---------- zoom ----------
@@ -646,6 +647,8 @@
   $('btnAdicionar').addEventListener('click', () => $('arquivos').click());
   $('arquivos').addEventListener('change', () => { adicionarArquivos($('arquivos').files); $('arquivos').value = ''; });
   $('btnOrganizar').addEventListener('click', () => { if (est.pecas.length) organizar(); });
+  $('btnOutra').addEventListener('click', outraMontagem);
+  $('btnAnterior').addEventListener('click', voltarAnterior);
   let arrastando = 0;
   addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { arrastando++; $('soltar').hidden = false; } });
   addEventListener('dragleave', () => { if (--arrastando <= 0) { arrastando = 0; $('soltar').hidden = true; } });
@@ -700,6 +703,15 @@
           // no tamanho original, cópia exata dos pixels
           suave: !umPraUm };
       });
+      // Cada imagem é aberta quando a primeira faixa que a usa chega e fechada depois da última:
+      // assim só ficam abertas as artes da região do filme que está sendo gerada.
+      const ultimaLinha = new Map();
+      for (const q of pecas) ultimaLinha.set(q.a.id, Math.max(ultimaLinha.get(q.a.id) || 0, q.y + q.h));
+      const abertas = new Map();
+      const abrir = async (a) => {
+        if (!abertas.has(a.id)) abertas.set(a.id, await createImageBitmap(a.arquivo, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }));
+        return abertas.get(a.id);
+      };
       const cv = document.createElement('canvas');
       cv.width = FILME_PX;
       const ctx = cv.getContext('2d'); // na placa de vídeo: desenhar as artes grandes fica rápido; lê só uma vez por faixa
@@ -717,7 +729,7 @@
             ctx.imageSmoothingEnabled = q.suave;
             if (q.y > y0 + n || q.y + q.h < y0) continue;
             // desenha só a fatia da arte que cai nesta faixa (desenhar a imagem inteira a cada faixa é lento)
-            const bmp = q.a.bitmap;
+            const bmp = await abrir(q.a);
             const t0 = Math.max(0, y0 - q.y), t1 = Math.min(q.h, y0 + n - q.y); // trecho da altura da peça, em px
             if (t1 <= t0) continue;
             ctx.save();
@@ -755,6 +767,7 @@
             }
           }
           const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
+          for (const [id, b] of abertas) if (ultimaLinha.get(id) <= y0 + n) { if (b.close) b.close(); abertas.delete(id); }
           // Limiar na transparência (como máscara de camada + limiar no Photoshop): todo pixel fica cheio
           // ou vazio. Borda meio transparente imprime branca no DTF e atrapalha o halftone.
           for (let i = 3; i < dados.length; i += 4) {
