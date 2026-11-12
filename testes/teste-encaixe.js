@@ -105,17 +105,32 @@ caso('várias pequenas preenchem o vão antes de descer o filme', () => {
   const novas = [{ id: 'G', w: 560, h: 300, rot: 0, fixo: true, perfis: { 0: grande, 90: girarPerfil(grande) } }];
   for (let i = 0; i < 12; i++) novas.push({ id: 'p' + i, w: 80, h: 60, rot: 0, fixo: true });
   const r = encaixar({ largura: LARG, espaco: 5, novas });
-  const noVao = Object.keys(r.pos).filter((id) => id !== 'G' && r.pos[id].y + 60 <= 145).length;
-  assert(noVao >= 8, 'só ' + noVao + ' entraram no vão');
-  // as do vão não invadem a parte cheia da grande (com o espaço de 5 mm)
+  // 8 pequenas cabem no vão (4 x 2); as outras 4 descem: o filme não passa de 30 + 0,5 + 6 cm
+  assert(r.fundo <= 300 + 5 + 60, 'filme comprido demais: ' + r.fundo);
+  // nenhuma pequena invade a parte desenhada da grande, onde quer que a grande tenha ficado
+  const G = r.pos.G, peq = perfilRetangulo(80, 60);
   for (const id of Object.keys(r.pos)) {
     if (id === 'G') continue;
     const p = r.pos[id];
-    const tocaCheia = p.y < 300 + 5 && p.y + 60 > 150 - 5 ? true : p.y < 150 && p.x + 80 > 400 - 5;
-    assert(!tocaCheia || p.y >= 305, id + ' encosta na parte cheia: ' + JSON.stringify(p));
+    assert(!sobrepoe(grande, G.x, G.y, peq, p.x, p.y), id + ' invade a grande: ' + JSON.stringify(p) + ' grande ' + JSON.stringify(G));
   }
   assert(sobrepoe(grande, 0, 0, perfilRetangulo(80, 60), 0, 0) === false, 'o canto vazio não conta como ocupado');
   assert(sobrepoe(grande, 0, 0, perfilRetangulo(80, 60), 390, 0) === true, 'a parte cheia conta como ocupada');
+});
+
+caso('arte pequena entra num vão interno (entre dois braços de uma grande)', () => {
+  // "U" de 30 x 30 cm: dois braços de 4 cm e a base de 4 cm embaixo; o meio é transparente
+  const u = perfilRetangulo(300, 300);
+  u.spans = [];
+  for (let y = 0; y < 300; y++) u.spans[y] = y < 260 ? [0, 40, 260, 300] : [0, 300];
+  const novas = [
+    { id: 'U', w: 300, h: 300, rot: 0, fixo: true, perfis: { 0: u, 90: girarPerfil(u) } },
+    { id: 'P', w: 100, h: 100, rot: 0, fixo: true },
+  ];
+  // largura de 30 cm: a pequena só cabe dentro do U, senão o filme passaria de 30 cm
+  const r = encaixar({ largura: 300, espaco: 5, novas });
+  assert.strictEqual(r.fundo, 300, 'a pequena devia ficar dentro do U: ' + JSON.stringify(r.pos));
+  assert(!sobrepoe(u, r.pos.U.x, r.pos.U.y, perfilRetangulo(100, 100), r.pos.P.x, r.pos.P.y), 'invadiu o U');
 });
 
 caso('espaço zero encosta mas não sobrepõe', () => {

@@ -84,18 +84,27 @@
       if (rot) { ctx.translate(cols, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C); }
       else ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C);
       const d = ctx.getImageData(0, 0, cols, linhas).data;
-      const L = new Int16Array(linhas), R = new Int16Array(linhas);
+      // cada linha guarda todos os trechos com desenho; buracos de até 3 mm são tratados como cheios
+      // (não cabe nada neles e deixa o encaixe mais rápido)
+      const spans = new Array(linhas);
       for (let y = 0; y < linhas; y++) {
-        let l = -1, r = -1;
-        for (let x = 0; x < cols; x++) if (d[(y * cols + x) * 4 + 3] > 6) { if (l < 0) l = x; r = x + 1; }
-        if (l >= 0) { L[y] = l; R[y] = r; }
+        const t = [];
+        let x = 0;
+        while (x < cols) {
+          while (x < cols && d[(y * cols + x) * 4 + 3] <= 6) x++;
+          if (x >= cols) break;
+          const a0 = x;
+          while (x < cols && d[(y * cols + x) * 4 + 3] > 6) x++;
+          if (t.length && a0 - t[t.length - 1] <= 3) t[t.length - 1] = x;
+          else t.push(a0, x);
+        }
+        spans[y] = t;
       }
-      return { cols, linhas, L, R };
+      return { cols, linhas, spans };
     };
     a.perfis = { chave, 0: fazer(0), 90: fazer(90) };
     let area = 0;
-    const p0 = a.perfis[0];
-    for (let y = 0; y < p0.linhas; y++) area += Math.max(0, p0.R[y] - p0.L[y]);
+    for (const t of a.perfis[0].spans) for (let k = 0; k < t.length; k += 2) area += t[k + 1] - t[k];
     a.perfis.area = area * Encaixe.CELULA * Encaixe.CELULA;
     return a.perfis;
   }

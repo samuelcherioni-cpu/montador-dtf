@@ -1,6 +1,7 @@
 // Encaixe automático das artes no filme pelo FORMATO REAL de cada arte (não pelo retângulo).
-// Cada arte vira um "perfil": para cada linha de 1 mm, onde a parte não transparente começa e termina.
-// Assim uma arte pequena entra no vão de outra (ex.: no canto vazio ao lado de um desenho).
+// Cada arte vira um "perfil": para cada linha de 1 mm, TODOS os trechos onde há desenho (não só onde
+// começa e termina). Assim uma arte pequena entra no vão de outra, inclusive em vãos internos
+// (ex.: entre o rosto e um raio do logo).
 // Regra de posição: mais em cima possível, depois mais à esquerda. Tudo em células de 1 mm.
 (function (raiz) {
   'use strict';
@@ -13,27 +14,60 @@
     return { cols, linhas, L, R };
   }
 
-  // Engorda o perfil em d células para todos os lados (garante o espaço entre artes)
-  function engordar(p, d) {
-    const linhas = p.linhas + 2 * d;
-    const L = new Int16Array(linhas), R = new Int16Array(linhas);
-    for (let i = 0; i < linhas; i++) {
-      let l = 32767, r = -32768;
-      for (let j = i - 2 * d; j <= i; j++) {
-        if (j < 0 || j >= p.linhas || p.L[j] >= p.R[j]) continue;
-        if (p.L[j] < l) l = p.L[j];
-        if (p.R[j] > r) r = p.R[j];
-      }
-      if (l < r) { L[i] = l - d; R[i] = r + d; } else { L[i] = 0; R[i] = 0; }
+  // Trechos de cada linha: lista [a0, b0, a1, b1, ...] (de a até antes de b). Vem de p.spans (formato
+  // real, vários trechos) ou, se não houver, de p.L/p.R (um trecho por linha).
+  function trechos(p) {
+    if (p.S) return p.S;
+    const S = new Array(p.linhas);
+    for (let y = 0; y < p.linhas; y++) {
+      if (p.spans) S[y] = p.spans[y] || [];
+      else S[y] = p.L[y] < p.R[y] ? [p.L[y], p.R[y]] : [];
     }
-    return { cols: p.cols + 2 * d, linhas, L, R, d };
+    p.S = S;
+    return S;
   }
 
-  // primeira e última linha com desenho e a linha mais estreita do perfil
+  // junta trechos que se tocam ou se sobrepõem
+  function juntar(pares) {
+    if (!pares.length) return [];
+    pares.sort((u, v) => u[0] - v[0]);
+    const saida = [];
+    let a = pares[0][0], b = pares[0][1];
+    for (let k = 1; k < pares.length; k++) {
+      const c = pares[k][0], e = pares[k][1];
+      if (c <= b) { if (e > b) b = e; } else { saida.push(a, b); a = c; b = e; }
+    }
+    saida.push(a, b);
+    return saida;
+  }
+
+  // Engorda o perfil em d células para todos os lados (garante o espaço entre artes)
+  function engordar(p, d) {
+    const S = trechos(p);
+    const linhas = p.linhas + 2 * d;
+    const G = new Array(linhas);
+    for (let i = 0; i < linhas; i++) {
+      const pares = [];
+      for (let j = i - 2 * d; j <= i; j++) {
+        if (j < 0 || j >= p.linhas) continue;
+        const t = S[j];
+        for (let k = 0; k < t.length; k += 2) pares.push([t[k] - d, t[k + 1] + d]);
+      }
+      G[i] = juntar(pares);
+    }
+    return { cols: p.cols + 2 * d, linhas, S: G, d };
+  }
+
+  // primeira e última linha com desenho, o trecho mais largo de cada linha e o menor desses
   function medir(p) {
+    const S = trechos(p);
     p.primeira = 0; p.ultima = -1; p.menor = 32767;
+    p.largo = new Int16Array(p.linhas);
     for (let j = 0; j < p.linhas; j++) {
-      const larg = p.R[j] - p.L[j];
+      const t = S[j];
+      let larg = 0;
+      for (let k = 0; k < t.length; k += 2) larg = Math.max(larg, t[k + 1] - t[k]);
+      p.largo[j] = larg;
       if (larg <= 0) continue;
       if (p.ultima < 0) p.primeira = j;
       p.ultima = j;
@@ -54,32 +88,35 @@
       this.folga[gy] = maior;
     }
     linha(y) { return y >= 0 && y < this.linhas.length ? this.linhas[y] : null; }
+    inserir(gy, a, b) {
+      while (this.linhas.length <= gy) this.linhas.push([]);
+      const nova = [];
+      let pos = 0;
+      for (const t of this.linhas[gy]) {
+        if (t[1] < a) { nova.push(t); pos++; } else if (t[0] > b) nova.push(t);
+        else { a = Math.min(a, t[0]); b = Math.max(b, t[1]); }
+      }
+      nova.splice(pos, 0, [a, b]);
+      this.linhas[gy] = nova;
+    }
     ocupar(p, x, y) {
+      const S = trechos(p);
       for (let i = 0; i < p.linhas; i++) {
-        if (p.L[i] >= p.R[i]) continue;
-        const gy = y + i;
-        while (this.linhas.length <= gy) this.linhas.push([]);
-        const lista = this.linhas[gy];
-        let a = x + p.L[i], b = x + p.R[i];
-        const nova = [];
-        let pos = 0;
-        for (const t of lista) {
-          if (t[1] < a) { nova.push(t); pos++; } else if (t[0] > b) nova.push(t);
-          else { a = Math.min(a, t[0]); b = Math.max(b, t[1]); }
-        }
-        nova.splice(pos, 0, [a, b]);
-        this.linhas[gy] = nova;
-        this.medirFolga(gy);
+        const t = S[i];
+        if (!t.length) continue;
+        for (let k = 0; k < t.length; k += 2) this.inserir(y + i, x + t[k], x + t[k + 1]);
+        this.medirFolga(y + i);
       }
     }
     // primeiro x livre na altura y para a peça (perfil engordado g, caixa de cols colunas); -1 se não houver
     xLivre(g, cols, y) {
       const proibidos = [];
       for (let i = 0; i < g.linhas; i++) {
-        if (g.L[i] >= g.R[i]) continue;
+        const t = g.S[i];
+        if (!t.length) continue;
         const lista = this.linha(y + i - g.d);
         if (!lista) continue;
-        for (const [a, b] of lista) proibidos.push([a - g.R[i] + 1, b - g.L[i] - 1]);
+        for (const [a, b] of lista) for (let k = 0; k < t.length; k += 2) proibidos.push([a - t[k + 1] + 1, b - t[k] - 1]);
       }
       const maxX = this.colunas - cols;
       if (maxX < 0) return -1;
@@ -97,7 +134,7 @@
     // próxima altura que vale a pena testar: pula de uma vez as linhas cheias demais para a peça
     proximoY(p, y) {
       for (let j = p.ultima; j >= p.primeira; j--) {
-        const larg = p.R[j] - p.L[j];
+        const larg = p.largo[j];
         if (larg <= 0) continue;
         const folga = this.maiorFolga(y + j);
         if (folga >= larg) continue;
@@ -117,7 +154,7 @@
     const filme = new Filme(colunas);
     const cursor = new Map(); // forma+giro -> menor y possível (só cresce, porque o filme só enche)
     const pos = {}, fora = [];
-    let fundo = 0;
+    let fundo = 0, soma = 0;
     for (const n of novas) {
       const criterio = jeito.criterioDaPeca ? jeito.criterioDaPeca() : jeito.criterio;
       let opcoes;
@@ -168,8 +205,9 @@
       filme.ocupar(melhor.p, melhor.x, melhor.y);
       pos[n.id] = { x: melhor.x * CELULA, y: melhor.y * CELULA, rot: melhor.rot };
       fundo = Math.max(fundo, melhor.baixo * CELULA);
+      soma += melhor.baixo * 4096 + melhor.x; // desempate: peças mais em cima (e mais à esquerda)
     }
-    return { pos, fora, fundo };
+    return { pos, fora, fundo, soma };
   }
 
   function prepararPerfis(n) {
@@ -199,7 +237,11 @@
     let melhor = null, feitas = 0, semMelhora = 0;
     const guardar = (r) => {
       feitas++;
-      if (!melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length && r.fundo < melhor.fundo)) { melhor = r; semMelhora = 0; }
+      // menos peças de fora; depois filme mais curto; empatando, tudo mais em cima e junto
+      // (o espaço que sobra fica contínuo embaixo e do lado)
+      const melhorou = !melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length &&
+        (r.fundo < melhor.fundo || (r.fundo === melhor.fundo && r.soma < melhor.soma)));
+      if (melhorou) { melhor = r; semMelhora = 0; }
       else semMelhora++;
     };
     for (const [ordem, giro, criterio] of tentativas) {
@@ -234,10 +276,14 @@
   function sobrepoe(pa, xa, ya, pb, xb, yb) {
     const ax = Math.round(xa / CELULA), ay = Math.round(ya / CELULA), bx = Math.round(xb / CELULA), by = Math.round(yb / CELULA);
     const y0 = Math.max(ay, by), y1 = Math.min(ay + pa.linhas, by + pb.linhas);
+    const SA = trechos(pa), SB = trechos(pb);
     for (let y = y0; y < y1; y++) {
-      const i = y - ay, j = y - by;
-      if (pa.L[i] >= pa.R[i] || pb.L[j] >= pb.R[j]) continue;
-      if (ax + pa.L[i] < bx + pb.R[j] && bx + pb.L[j] < ax + pa.R[i]) return true;
+      const ta = SA[y - ay], tb = SB[y - by];
+      for (let k = 0; k < ta.length; k += 2) {
+        for (let m = 0; m < tb.length; m += 2) {
+          if (ax + ta[k] < bx + tb[m + 1] && bx + tb[m] < ax + ta[k + 1]) return true;
+        }
+      }
     }
     return false;
   }
