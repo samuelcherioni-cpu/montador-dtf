@@ -11,7 +11,7 @@
   const MAX_METROS = 20;
 
   const $ = (id) => document.getElementById(id);
-  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 3, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '' };
+  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 1, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '' };
   let seq = 0;
 
   const fmt = (n, c = 1) => n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c });
@@ -516,14 +516,6 @@
   const fmtMetros = (mm) => String(Math.max(0.1, Math.ceil(mm / 100) / 10));
   $('metros').addEventListener('change', () => { est.metros = numero('metros', 0.1, MAX_METROS, 1); desenhar(); });
   $('espaco').addEventListener('change', () => { est.espaco = numero('espaco', 0, 50, 5); organizar(); });
-  $('margem').addEventListener('change', () => {
-    const nova = numero('margem', 0, 30, 3);
-    est.margem = nova;
-    for (const a of est.artes) {
-      if (!cabe(a.w, a.h)) { const u = larguraUtil(); const f = u / Math.min(a.w, a.h); a.w = arred(a.w * f); a.h = arred(a.h * f); }
-    }
-    organizar(); desenharLista();
-  });
   $('ident').addEventListener('input', () => { est.ident = $('ident').value.trim(); desenhar(); });
 
   // ---------- adicionar ----------

@@ -119,9 +119,12 @@
     const pos = {}, fora = [];
     let fundo = 0;
     for (const n of novas) {
+      const criterio = jeito.criterioDaPeca ? jeito.criterioDaPeca() : jeito.criterio;
       let opcoes;
+      const daForma = jeito.porForma && jeito.porForma.get(n.forma || n.id);
       if (!girar || n.fixo) opcoes = [n.rot];
-      else if (jeito.giro === 'livre') opcoes = [0, 90];
+      else if (daForma !== undefined && daForma !== 'livre' && n.perfis[daForma].cols <= colunas) opcoes = [daForma];
+      else if (jeito.giro === 'livre' || daForma === 'livre') opcoes = [0, 90];
       else {
         const pref = jeito.giro === 'deitado' ? 90 : 0, outro = pref ? 0 : 90;
         opcoes = n.perfis[pref].cols <= colunas ? [pref] : [outro];
@@ -143,8 +146,20 @@
           y++;
         }
         cursor.set(chave, y);
+        if (criterio === 'esquerda' && x > 0) {
+          // procura mais abaixo uma posição mais à esquerda (para quando encostar no canto rende mais)
+          for (let yy = y + 1; ; yy++) {
+            if (filme.sobra(yy - d)) { if (yy - y <= p.linhas) { x = 0; y = yy; } break; }
+            if (yy - y > p.linhas) break;
+            if (filme.proximoY(p, yy) !== yy) continue;
+            const xx = filme.xLivre(p.gordo, p.cols, yy);
+            if (xx >= 0 && xx < x) { x = xx; y = yy; if (x === 0) break; }
+          }
+        }
         const baixo = y + p.linhas;
-        const ganha = !melhor || (jeito.criterio === 'topo'
+        const ganha = !melhor || (criterio === 'esquerda'
+          ? x < melhor.x || (x === melhor.x && baixo < melhor.baixo)
+          : criterio === 'topo'
           ? y < melhor.y || (y === melhor.y && (x < melhor.x || (x === melhor.x && baixo < melhor.baixo)))
           : baixo < melhor.baixo || (baixo === melhor.baixo && x < melhor.x));
         if (ganha) melhor = { x, y, rot, p, baixo };
@@ -177,16 +192,39 @@
       [porArea, 'em-pe', 'fundo'], [porArea, 'deitado', 'fundo'], [porMaior, 'livre', 'topo'],
       [porMaior, 'em-pe', 'fundo'], [porMaior, 'deitado', 'fundo'], [porMenor, 'livre', 'fundo'],
       [porMenor, 'livre', 'topo'], [porArea, 'em-pe', 'topo'], [porArea, 'deitado', 'topo'],
+      [porArea, 'livre', 'esquerda'], [porMaior, 'livre', 'esquerda'],
     ];
     const agora = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
     const inicio = agora();
-    let melhor = null, feitas = 0;
+    let melhor = null, feitas = 0, semMelhora = 0;
+    const guardar = (r) => {
+      feitas++;
+      if (!melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length && r.fundo < melhor.fundo)) { melhor = r; semMelhora = 0; }
+      else semMelhora++;
+    };
     for (const [ordem, giro, criterio] of tentativas) {
       if (feitas >= 3 && agora() - inicio > limiteMs) break;
       if (!girar && giro !== 'livre') continue;
-      const r = rodada(largura, espaco, girar, ordem, { giro, criterio });
-      feitas++;
-      if (!melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length && r.fundo < melhor.fundo)) melhor = r;
+      guardar(rodada(largura, espaco, girar, ordem, { giro, criterio }));
+    }
+
+    // Com o tempo que sobra: sorteia outras combinações (ordem das peças, giro de cada arte e critério)
+    // e fica com a melhor. O sorteio é sempre o mesmo para a mesma fila, então o resultado não "pula".
+    let semente = 20261112 + lista.length * 7919;
+    const sorte = () => ((semente = (Math.imul(semente, 1103515245) + 12345) >>> 0) / 4294967296);
+    const formas = [...new Set(lista.map((n) => n.forma || n.id))];
+    // para antes do tempo quando 120 sorteios seguidos não acharam nada melhor (filas pequenas respondem rápido)
+    while (agora() - inicio < limiteMs && semMelhora < 120) {
+      const peso = new Map(lista.map((n) => [n, area(n) * (0.35 + sorte() * 1.3)]));
+      const ordem = sorte() < 0.2
+        ? [...lista].sort(() => sorte() - 0.5)
+        : [...lista].sort((a, b) => peso.get(b) - peso.get(a));
+      const porForma = new Map();
+      if (girar) for (const f of formas) { const t = sorte(); porForma.set(f, t < 0.4 ? 'livre' : t < 0.7 ? 0 : 90); }
+      const qual = () => { const t = sorte(); return t < 0.45 ? 'fundo' : t < 0.7 ? 'topo' : 'esquerda'; };
+      // metade das vezes um critério só; na outra metade cada peça sorteia o seu
+      const jeito = sorte() < 0.5 ? { giro: 'livre', criterio: qual(), porForma } : { giro: 'livre', criterioDaPeca: qual, porForma };
+      guardar(rodada(largura, espaco, girar, ordem, jeito));
     }
     melhor.tentativas = feitas;
     return melhor;
