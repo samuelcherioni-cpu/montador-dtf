@@ -52,7 +52,7 @@
     if (!pecas.length) return;
     const novas = pecas.map((p) => {
       const a = arteDe(p.arte);
-      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: p.rot, fixo: !!a.rotFixa, perfis: perfis(a) };
+      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: p.rot, perfis: perfis(a) };
     });
     const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas });
     for (const p of pecas) {
@@ -98,15 +98,17 @@
     return a.perfis;
   }
 
-  // Toda mudança refaz o encaixe de todas as artes, para a fila ficar sempre compacta
+  // Toda mudança refaz o encaixe de todas as artes, para a fila ficar sempre compacta.
+  // Em pé ou deitada (90°): quem decide é o encaixe, peça por peça, para gastar menos filme.
   function reorganizar() {
-    for (const p of est.pecas) p.rot = arteDe(p.arte).rot;
+    for (const p of est.pecas) p.rot = 0;
     encaixarPecas(est.pecas);
   }
   function organizar() {
     reorganizar();
     est.sel.clear();
     desenhar();
+    desenharLista();
   }
 
   function novaPeca(arte) {
@@ -198,19 +200,8 @@
     if (campo === 'w') { if (arte.travado) h = (h * mm) / w; w = mm; } else { if (arte.travado) w = (w * mm) / h; h = mm; }
     if (!cabe(w, h)) { avisar(`Não cabe no filme: o lado menor pode ter até ${cm(larguraUtil())} cm.`, true); return false; }
     arte.w = arred(w); arte.h = arred(h);
-    if (!est.girar && arte.rot === 0 && arte.w > larguraUtil()) arte.rot = 90;
-    if (arte.rotFixa && (arte.rot ? arte.h : arte.w) > larguraUtil() + 1e-6) arte.rotFixa = false;
     reorganizar();
     return true;
-  }
-
-  function girarArte(arte) {
-    const nova = arte.rot ? 0 : 90;
-    const w = nova ? arte.h : arte.w;
-    if (w > larguraUtil() + 1e-6) { avisar('Girada, a arte passa da largura do filme.', true); return; }
-    arte.rot = nova;
-    arte.rotFixa = true; // o giro escolhido à mão é respeitado no encaixe automático
-    reorganizar();
   }
 
   function removerArte(arte) {
@@ -226,8 +217,7 @@
   const ICONES = {
     menos: '<path d="M6 12h12"/>',
     mais: '<path d="M6 12h12M12 6v12"/>',
-    girar: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
-    lixo: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+        lixo: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
     fechado: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     aberto: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   };
@@ -247,6 +237,8 @@
       const selos = [];
       if (dpi < DPI_MINIMO) selos.push(`<span class="selo atencao">Resolução baixa · ${Math.round(dpi)} DPI</span>`);
       if (!a.transparente) selos.push('<span class="selo atencao">Sem fundo transparente</span>');
+      const deitadas = est.pecas.filter((p) => p.arte === a.id && p.rot).length;
+      if (deitadas) selos.push(`<span class="selo ok">${deitadas === a.qtd ? 'Deitada no filme' : deitadas + ' de ' + a.qtd + ' deitadas no filme'}</span>`);
       return `<article class="arte glass brilho${selArtes.has(a.id) ? ' marcada' : ''}" data-arte="${a.id}">
         <div class="mini"><img src="${a.previa}" alt=""></div>
         <div class="arte-info">
@@ -265,7 +257,6 @@
               <input class="input curto num" data-campo="qtd" type="number" min="1" max="999" step="1" value="${a.qtd}" aria-label="Quantidade">
               <button class="btn btn-ghost btn-icone" data-acao="mais" type="button" aria-label="Uma cópia a mais">${svg('mais')}</button>
             </div>
-            <button class="btn btn-ghost btn-icone${a.rot ? ' ativo' : ''}" data-acao="girar" type="button" title="Girar 90°" aria-label="Girar 90°">${svg('girar')}</button>
             <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
           </div>
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
@@ -285,7 +276,6 @@
     const acao = b.dataset.acao;
     if (acao === 'mais') mudarQtd(arte, arte.qtd + 1);
     else if (acao === 'menos') mudarQtd(arte, arte.qtd - 1);
-    else if (acao === 'girar') girarArte(arte);
     else if (acao === 'travar') arte.travado = !arte.travado;
     else if (acao === 'remover') removerArte(arte);
     desenharLista();
@@ -509,7 +499,6 @@
     }
     organizar(); desenharLista();
   });
-  $('girar').addEventListener('change', () => { est.girar = $('girar').checked; organizar(); });
   $('ident').addEventListener('input', () => { est.ident = $('ident').value.trim(); desenhar(); });
 
   // ---------- adicionar ----------
@@ -570,7 +559,11 @@
       const partes = await Png.gerarPNG({
         largura: FILME_PX, altura, dpi: DPI, alturaFaixa: 512,
         faixa: async (y0, n) => {
-          if (cv.height !== n) cv.height = n; else ctx.clearRect(0, 0, FILME_PX, n);
+          // limpa a faixa anterior inteira ANTES de deslocar (com o deslocamento, a limpeza caía no lugar errado
+          // e sobravam pedaços da faixa anterior nas partes transparentes)
+          if (cv.height !== n) cv.height = n;
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, FILME_PX, n);
           ctx.setTransform(1, 0, 0, 1, 0, -y0);
           ctx.imageSmoothingEnabled = true;
           ctx.imageSmoothingQuality = 'high';

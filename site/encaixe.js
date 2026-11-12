@@ -109,7 +109,9 @@
 
   // largura e espaco em mm; novas: [{id, w, h, rot, fixo, perfis: {0: perfil, 90: perfil}}]
   // perfil: {cols, linhas, L, R} em células de 1 mm, da caixa da arte já no giro indicado
-  function rodada(largura, espaco, girar, novas) {
+  // jeito.giro: 'livre' (cada cópia escolhe), 'em-pe' (só gira se não couber) ou 'deitado' (gira sempre que couber)
+  // jeito.criterio: 'fundo' (a que termina mais em cima) ou 'topo' (a que começa mais em cima)
+  function rodada(largura, espaco, girar, novas, jeito = { giro: 'livre', criterio: 'fundo' }) {
     const colunas = Math.floor(largura / CELULA + 1e-6);
     const d = Math.max(0, Math.ceil(espaco / CELULA - 1e-6));
     const filme = new Filme(colunas);
@@ -117,7 +119,13 @@
     const pos = {}, fora = [];
     let fundo = 0;
     for (const n of novas) {
-      const opcoes = girar && !n.fixo ? [n.rot, n.rot ? 0 : 90] : [n.rot];
+      let opcoes;
+      if (!girar || n.fixo) opcoes = [n.rot];
+      else if (jeito.giro === 'livre') opcoes = [0, 90];
+      else {
+        const pref = jeito.giro === 'deitado' ? 90 : 0, outro = pref ? 0 : 90;
+        opcoes = n.perfis[pref].cols <= colunas ? [pref] : [outro];
+      }
       let melhor = null;
       for (const rot of opcoes) {
         const p = n.perfis[rot];
@@ -136,7 +144,10 @@
         }
         cursor.set(chave, y);
         const baixo = y + p.linhas;
-        if (!melhor || baixo < melhor.baixo || (baixo === melhor.baixo && x < melhor.x)) melhor = { x, y, rot, p, baixo };
+        const ganha = !melhor || (jeito.criterio === 'topo'
+          ? y < melhor.y || (y === melhor.y && (x < melhor.x || (x === melhor.x && baixo < melhor.baixo)))
+          : baixo < melhor.baixo || (baixo === melhor.baixo && x < melhor.x));
+        if (ganha) melhor = { x, y, rot, p, baixo };
       }
       if (!melhor) { fora.push(n.id); continue; }
       filme.ocupar(melhor.p, melhor.x, melhor.y);
@@ -152,19 +163,32 @@
     return { ...n, perfis: { 0: perfilRetangulo(c0, l0), 90: perfilRetangulo(l0, c0) } };
   }
 
-  function encaixar({ largura, espaco = 5, girar = true, novas }) {
+  // Tenta várias combinações de ordem e de giro e fica com a que gasta menos filme.
+  // limiteMs: tempo máximo de tentativas (as primeiras rodam sempre).
+  function encaixar({ largura, espaco = 5, girar = true, novas, limiteMs = 700 }) {
     const lista = novas.map(prepararPerfis);
     const area = (n) => n.w * n.h;
     const maior = (n) => Math.max(n.w, n.h);
-    const ordens = [
-      [...lista].sort((a, b) => area(b) - area(a) || maior(b) - maior(a)),
-      [...lista].sort((a, b) => maior(b) - maior(a) || area(b) - area(a)),
+    const menor = (n) => Math.min(n.w, n.h);
+    const ordenar = (f, g) => [...lista].sort((a, b) => f(b) - f(a) || g(b) - g(a));
+    const porArea = ordenar(area, maior), porMaior = ordenar(maior, area), porMenor = ordenar(menor, area);
+    const tentativas = [
+      [porArea, 'livre', 'fundo'], [porMaior, 'livre', 'fundo'], [porArea, 'livre', 'topo'],
+      [porArea, 'em-pe', 'fundo'], [porArea, 'deitado', 'fundo'], [porMaior, 'livre', 'topo'],
+      [porMaior, 'em-pe', 'fundo'], [porMaior, 'deitado', 'fundo'], [porMenor, 'livre', 'fundo'],
+      [porMenor, 'livre', 'topo'], [porArea, 'em-pe', 'topo'], [porArea, 'deitado', 'topo'],
     ];
-    let melhor = null;
-    for (const ordem of ordens) {
-      const r = rodada(largura, espaco, girar, ordem);
+    const agora = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const inicio = agora();
+    let melhor = null, feitas = 0;
+    for (const [ordem, giro, criterio] of tentativas) {
+      if (feitas >= 3 && agora() - inicio > limiteMs) break;
+      if (!girar && giro !== 'livre') continue;
+      const r = rodada(largura, espaco, girar, ordem, { giro, criterio });
+      feitas++;
       if (!melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length && r.fundo < melhor.fundo)) melhor = r;
     }
+    melhor.tentativas = feitas;
     return melhor;
   }
 
