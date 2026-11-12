@@ -22,8 +22,11 @@ function varrer(dir) {
     if (fs.statSync(arq).isDirectory()) { varrer(arq); continue; }
     if (!/\.(html|css|js|json|txt|md|svg|webmanifest)$/i.test(nome)) continue;
     const linhas = fs.readFileSync(arq, 'utf8').split(/\r?\n/);
-    linhas.forEach((linha, i) => {
+    linhas.forEach((original, i) => {
       const onde = `${path.relative(__dirname, arq)}:${i + 1}`;
+      // o trabalhador do encaixe (Web Worker) só conversa com a própria página: a resposta dele é liberada,
+      // e só nesse arquivo; qualquer outra mensagem para janela continua barrada
+      const linha = nome === 'trabalho-encaixe.js' ? original.replace(/\bself\.postMessage\(/g, 'RESPOSTA_DO_TRABALHADOR(') : original;
       for (const re of PROIBIDOS) if (re.test(linha)) { problemas++; console.log(`PROIBIDO ${re} em ${onde}`); }
       for (const url of linha.match(/https?:\/\/[^\s"'`)<>]+/gi) || []) {
         if (!PERMITIDOS.some((p) => url.startsWith(p))) { problemas++; console.log(`ENDEREÇO EXTERNO ${url} em ${onde}`); }

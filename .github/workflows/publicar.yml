@@ -29,6 +29,8 @@ jobs:
         run: node testes/teste-encaixe.js
       - name: PNG
         run: node testes/teste-png.js
+      - name: 80 filas sorteadas (nada sobreposto, nada fora do filme)
+        run: node testes/medir-encaixe.js --n 80 --ms 300
 
   publicar:
     needs: testar

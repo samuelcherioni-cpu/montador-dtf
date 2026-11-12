@@ -33,9 +33,14 @@
   }
 
   // ---------- medidas do filme ----------
+  // onde está o desenho da peça (em mm, no filme): a sobra transparente em volta não conta
+  function desenho(p) {
+    const l = Encaixe.limites(perfis(arteDe(p.arte))[p.rot]), C = Encaixe.CELULA;
+    return { x0: p.x + l.esq * C, x1: p.x + l.dir * C, y0: p.y + l.primeira * C, y1: p.y + (l.ultima + 1) * C };
+  }
   function fundoPecas() {
     let f = 0;
-    for (const p of est.pecas) f = Math.max(f, p.y + medida(p).h);
+    for (const p of est.pecas) f = Math.max(f, desenho(p).y1);
     return f;
   }
   function necessario() { // comprimento mínimo que a fila precisa
@@ -48,19 +53,30 @@
   }
 
   // ---------- encaixe ----------
-  function encaixarPecas(pecas) {
-    if (!pecas.length) return;
-    const novas = pecas.map((p) => {
+  function pedidoDeEncaixe(pecas, leves) {
+    return pecas.map((p) => {
       const a = arteDe(p.arte);
       // giro: 'auto' (o encaixe decide) ou escolhido à mão (0 = em pé, 90 = deitada)
       const manual = a.giro && a.giro !== 'auto';
-      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: manual ? Number(a.giro) : 0, fixo: manual, perfis: perfis(a) };
+      const pf = perfis(a);
+      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: manual ? Number(a.giro) : 0, fixo: manual,
+        perfis: leves ? { 0: leve(pf[0]), 90: leve(pf[90]) } : pf };
     });
-    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas });
-    for (const p of pecas) {
-      const pos = r.pos[p.id];
-      if (pos) { p.x = pos.x + est.margem; p.y = pos.y + est.margem; p.rot = pos.rot; }
+  }
+  // só o necessário para mandar ao trabalhador (sem os cálculos guardados no perfil)
+  const leve = (p) => ({ cols: p.cols, linhas: p.linhas, spans: p.spans });
+  function aplicar(pos) {
+    for (const p of est.pecas) {
+      const q = pos[p.id];
+      if (q) { p.x = q.x + est.margem; p.y = q.y + est.margem; p.rot = q.rot; }
     }
+  }
+  function encaixarPecas(pecas) {
+    if (!pecas.length) { pararOtimizacao(); return; }
+    // montagem rápida na hora; o trabalhador em segundo plano continua procurando uma folha mais curta
+    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(pecas), limiteMs: 150 });
+    aplicar(r.pos);
+    otimizar(r.fundo);
     if (r.fora.length) {
       const fora = new Set(r.fora);
       est.pecas = est.pecas.filter((p) => !fora.has(p.id));
@@ -68,6 +84,44 @@
       avisar(`${r.fora.length} cópia(s) não cabem na largura do filme. Diminua a arte.`, true);
     }
   }
+  // ---------- otimização em segundo plano ----------
+  // Um trabalhador (Web Worker) roda o encaixe por alguns segundos sem travar a tela e manda cada
+  // montagem melhor que encontrar. Qualquer mudança na fila cancela e recomeça.
+  let trabalhador = null, pedidoAtual = 0, otimizando = false, melhorFundo = Infinity;
+  const versao = (document.querySelector('script[src^="montador.js"]') || {}).getAttribute?.('src')?.split('?')[1] || '';
+  function pararOtimizacao() {
+    if (trabalhador) { trabalhador.terminate(); trabalhador = null; }
+    if (otimizando) { otimizando = false; atualizarEstado(sobrepostas(), comprimento()); }
+  }
+  function otimizar(fundoAtual) {
+    pararOtimizacao();
+    if (typeof Worker === 'undefined' || !est.pecas.length) return;
+    try { trabalhador = new Worker('trabalho-encaixe.js' + (versao ? '?' + versao : '')); } catch (e) { trabalhador = null; return; }
+    const id = ++pedidoAtual;
+    melhorFundo = fundoAtual;
+    otimizando = true;
+    // mais peças, mais tempo (de 2 a 8 s)
+    const limiteMs = Math.min(8000, Math.max(2000, 1500 + est.pecas.length * 40));
+    trabalhador.onmessage = (e) => {
+      const m = e.data;
+      if (m.id !== pedidoAtual) return;
+      if (m.tipo === 'melhor' && !m.fora.length && m.fundo < melhorFundo - 0.01) {
+        melhorFundo = m.fundo;
+        const deitadasAntes = est.pecas.map((p) => p.rot).join();
+        aplicar(m.pos);
+        desenhar();
+        // a lista só é redesenhada se mudou o que ela mostra (e nunca com alguém digitando nela)
+        if (deitadasAntes !== est.pecas.map((p) => p.rot).join() && !$('lista').contains(document.activeElement)) desenharLista();
+      } else if (m.tipo === 'fim') {
+        otimizando = false;
+        if (trabalhador) { trabalhador.terminate(); trabalhador = null; }
+        atualizarEstado(sobrepostas(), comprimento());
+      }
+    };
+    trabalhador.onerror = () => { otimizando = false; trabalhador = null; atualizarEstado(sobrepostas(), comprimento()); };
+    trabalhador.postMessage({ id, largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas: pedidoDeEncaixe(est.pecas, true), limiteMs });
+  }
+
   // Formato real da arte: em cada linha de 1 mm, onde começa e termina a parte não transparente.
   // Fica guardado até a arte mudar de tamanho.
   function perfis(a) {
@@ -375,8 +429,9 @@
     const L = comprimento();
     const caixas = est.pecas.map((p) => { const m = medida(p); return { id: p.id, x: p.x, y: p.y, w: m.w, h: m.h }; });
     const limiteY = est.modo === 'fixo' ? L - est.margem - (est.ident ? est.espaco + IDENT_MM : 0) : Infinity;
-    for (const c of caixas) {
-      if (c.x < est.margem - 0.05 || c.x + c.w > FILME_MM - est.margem + 0.05 || c.y < est.margem - 0.05 || c.y + c.h > limiteY + 0.05) ruins.add(c.id);
+    for (const p of est.pecas) {
+      const g = desenho(p);
+      if (g.x0 < est.margem - 0.05 || g.x1 > FILME_MM - est.margem + 0.05 || g.y0 < est.margem - 0.05 || g.y1 > limiteY + 0.05) ruins.add(p.id);
     }
     const formas = est.pecas.map((p) => perfis(arteDe(p.arte))[p.rot]);
     for (let i = 0; i < caixas.length; i++) {
@@ -445,6 +500,7 @@
       txt = `Máximo de ${MAX_METROS} m por arquivo.`;
       cls = 'erro'; pode = false;
     } else txt = `${n} ${n === 1 ? 'arte' : 'artes'} · ${metrosTxt(L)} · ${fmt(Math.min(100, (areaPecas() / ((FILME_MM - 2 * est.margem) * L)) * 100), 0)}% aproveitado`;
+    if (otimizando && pode) txt += ' · otimizando…';
     el.textContent = txt;
     el.className = 'estado num ' + cls;
     $('btnBaixar').disabled = !pode;
@@ -459,6 +515,7 @@
   }
   let arrasto = null;
   $('filme').addEventListener('pointerdown', (e) => {
+    if (e.target.closest('[data-peca]')) pararOtimizacao();
     const el = e.target.closest('[data-peca]');
     if (!el) { if (est.sel.size) { est.sel.clear(); marcarSelecao(); } return; }
     const id = el.dataset.peca;
@@ -471,7 +528,7 @@
     e.preventDefault();
     const s = escala();
     const pecas = est.pecas.filter((p) => est.sel.has(p.id));
-    arrasto = { x0: e.clientX, y0: e.clientY, s, mexeu: false, pecas: pecas.map((p) => ({ p, x: p.x, y: p.y, m: medida(p) })), el };
+    arrasto = { x0: e.clientX, y0: e.clientY, s, mexeu: false, pecas: pecas.map((p) => ({ p, x: p.x, y: p.y, m: medida(p), g: desenho(p) })), el };
     $('filme').setPointerCapture(e.pointerId);
     marcarSelecao();
   });
@@ -480,11 +537,11 @@
     let dx = (e.clientX - arrasto.x0) / arrasto.s, dy = (e.clientY - arrasto.y0) / arrasto.s;
     if (!arrasto.mexeu && Math.hypot(dx, dy) * arrasto.s < 3) return;
     arrasto.mexeu = true;
-    // o grupo inteiro fica dentro da área útil
+    // o desenho do grupo inteiro fica dentro da área útil
     for (const q of arrasto.pecas) {
-      dx = Math.max(dx, est.margem - q.x);
-      dx = Math.min(dx, FILME_MM - est.margem - q.m.w - q.x);
-      dy = Math.max(dy, est.margem - q.y);
+      dx = Math.max(dx, est.margem - q.g.x0);
+      dx = Math.min(dx, FILME_MM - est.margem - q.g.x1);
+      dy = Math.max(dy, est.margem - q.g.y0);
     }
     const filme = $('filme');
     for (const q of arrasto.pecas) {

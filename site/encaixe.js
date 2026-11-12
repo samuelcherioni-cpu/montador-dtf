@@ -58,22 +58,31 @@
     return { cols: p.cols + 2 * d, linhas, S: G, d };
   }
 
-  // primeira e última linha com desenho, o trecho mais largo de cada linha e o menor desses
+  // Onde está o desenho dentro da caixa (primeira/última linha e coluna mais à esquerda/direita),
+  // o trecho mais largo de cada linha e o menor desses. A sobra transparente em volta não conta.
   function medir(p) {
+    if (p.menor !== undefined) return p;
     const S = trechos(p);
-    p.primeira = 0; p.ultima = -1; p.menor = 32767;
+    p.primeira = 0; p.ultima = -1; p.menor = 32767; p.esq = 32767; p.dir = 0;
     p.largo = new Int16Array(p.linhas);
     for (let j = 0; j < p.linhas; j++) {
       const t = S[j];
       let larg = 0;
-      for (let k = 0; k < t.length; k += 2) larg = Math.max(larg, t[k + 1] - t[k]);
+      for (let k = 0; k < t.length; k += 2) {
+        larg = Math.max(larg, t[k + 1] - t[k]);
+        if (t[k] < p.esq) p.esq = t[k];
+        if (t[k + 1] > p.dir) p.dir = t[k + 1];
+      }
       p.largo[j] = larg;
       if (larg <= 0) continue;
       if (p.ultima < 0) p.primeira = j;
       p.ultima = j;
       if (larg < p.menor) p.menor = larg;
     }
+    if (p.ultima < 0) { p.esq = 0; p.dir = 0; }
+    return p;
   }
+  const largDesenho = (p) => { medir(p); return p.dir - p.esq; };
 
   // O filme: para cada linha, a lista de trechos ocupados [a, b)
   class Filme {
@@ -108,27 +117,38 @@
         this.medirFolga(y + i);
       }
     }
-    // primeiro x livre na altura y para a peça (perfil engordado g, caixa de cols colunas); -1 se não houver
-    xLivre(g, cols, y) {
-      const proibidos = [];
+    // Primeira posição x livre (entre xMin e xMax) na altura y para a peça de perfil engordado g; null se não houver.
+    // Marca numa régua (diferenças acumuladas) as posições proibidas e devolve a primeira livre.
+    // Sem ordenar nada: é a parte que mais roda no encaixe.
+    xLivre(g, xMin, xMax, y) {
+      if (xMax < xMin) return null;
+      const maxX = xMax - xMin; // a régua começa em xMin
+      if (!this.regua || this.regua.length < maxX + 2) this.regua = new Int32Array(maxX + 2 + this.colunas);
+      const regua = this.regua;
+      regua.fill(0, 0, maxX + 2);
+      let algum = false;
       for (let i = 0; i < g.linhas; i++) {
         const t = g.S[i];
         if (!t.length) continue;
         const lista = this.linha(y + i - g.d);
         if (!lista) continue;
-        for (const [a, b] of lista) for (let k = 0; k < t.length; k += 2) proibidos.push([a - t[k + 1] + 1, b - t[k] - 1]);
+        for (let m = 0; m < lista.length; m++) {
+          const a = lista[m][0], b = lista[m][1];
+          for (let k = 0; k < t.length; k += 2) {
+            let lo = a - t[k + 1] + 1 - xMin, hi = b - t[k] - 1 - xMin;
+            if (hi < 0 || lo > maxX) continue;
+            if (lo <= 0 && hi >= maxX) return null; // esta linha sozinha já fecha todas as posições
+            if (lo < 0) lo = 0;
+            if (hi > maxX) hi = maxX;
+            regua[lo]++; regua[hi + 1]--;
+            algum = true;
+          }
+        }
       }
-      const maxX = this.colunas - cols;
-      if (maxX < 0) return -1;
-      if (!proibidos.length) return 0;
-      proibidos.sort((p, q) => p[0] - q[0]);
-      let x = 0;
-      for (const [a, b] of proibidos) {
-        if (a > x) break;
-        if (b >= x) x = b + 1;
-        if (x > maxX) return -1;
-      }
-      return x <= maxX ? x : -1;
+      if (!algum) return xMin;
+      let soma = 0;
+      for (let x = 0; x <= maxX; x++) { soma += regua[x]; if (soma === 0) return x + xMin; }
+      return null;
     }
     sobra(y) { return y >= this.linhas.length; }
     // próxima altura que vale a pena testar: pula de uma vez as linhas cheias demais para a peça
@@ -160,46 +180,47 @@
       let opcoes;
       const daForma = jeito.porForma && jeito.porForma.get(n.forma || n.id);
       if (!girar || n.fixo) opcoes = [n.rot];
-      else if (daForma !== undefined && daForma !== 'livre' && n.perfis[daForma].cols <= colunas) opcoes = [daForma];
+      else if (daForma !== undefined && daForma !== 'livre' && largDesenho(n.perfis[daForma]) <= colunas) opcoes = [daForma];
       else if (jeito.giro === 'livre' || daForma === 'livre') opcoes = [0, 90];
       else {
         const pref = jeito.giro === 'deitado' ? 90 : 0, outro = pref ? 0 : 90;
-        opcoes = n.perfis[pref].cols <= colunas ? [pref] : [outro];
+        opcoes = largDesenho(n.perfis[pref]) <= colunas ? [pref] : [outro];
       }
       let melhor = null;
       for (const rot of opcoes) {
-        const p = n.perfis[rot];
-        if (p.cols > colunas) continue;
+        const p = medir(n.perfis[rot]);
+        if (p.dir - p.esq > colunas) continue;
         if (!p.gordo || p.gordo.d !== d) p.gordo = engordar(p, d);
         const chave = (n.forma || n.id) + '|' + rot;
-        if (p.menor === undefined) medir(p);
-        let y = cursor.get(chave) || 0, x = -1;
+        // só a parte desenhada precisa ficar dentro do filme; a sobra transparente da caixa pode passar da borda
+        const xMin = 0 - p.esq, xMax = colunas - p.dir, yMin = 0 - p.primeira;
+        let y = Math.max(yMin, cursor.get(chave) ?? yMin), x = null;
         for (;;) {
-          if (filme.sobra(y - d)) { x = 0; break; } // abaixo de tudo: sempre cabe
+          if (filme.sobra(y + p.primeira - d)) { x = xMin; break; } // abaixo de tudo: sempre cabe
           const salto = filme.proximoY(p, y);
           if (salto !== y) { y = salto; continue; }
-          x = filme.xLivre(p.gordo, p.cols, y);
-          if (x >= 0) break;
+          x = filme.xLivre(p.gordo, xMin, xMax, y);
+          if (x !== null) break;
           y++;
         }
         cursor.set(chave, y);
-        if (criterio === 'esquerda' && x > 0) {
+        if (criterio === 'esquerda' && x > xMin) {
           // procura mais abaixo uma posição mais à esquerda (para quando encostar no canto rende mais)
           for (let yy = y + 1; ; yy++) {
-            if (filme.sobra(yy - d)) { if (yy - y <= p.linhas) { x = 0; y = yy; } break; }
+            if (filme.sobra(yy + p.primeira - d)) { if (yy - y <= p.linhas) { x = xMin; y = yy; } break; }
             if (yy - y > p.linhas) break;
             if (filme.proximoY(p, yy) !== yy) continue;
-            const xx = filme.xLivre(p.gordo, p.cols, yy);
-            if (xx >= 0 && xx < x) { x = xx; y = yy; if (x === 0) break; }
+            const xx = filme.xLivre(p.gordo, xMin, xMax, yy);
+            if (xx !== null && xx < x) { x = xx; y = yy; if (x === xMin) break; }
           }
         }
-        const baixo = y + p.linhas;
+        const baixo = y + p.ultima + 1; // onde o desenho termina (a sobra transparente embaixo não gasta filme)
         const ganha = !melhor || (criterio === 'esquerda'
           ? x < melhor.x || (x === melhor.x && baixo < melhor.baixo)
           : criterio === 'topo'
-          ? y < melhor.y || (y === melhor.y && (x < melhor.x || (x === melhor.x && baixo < melhor.baixo)))
+          ? y + p.primeira < melhor.topo || (y + p.primeira === melhor.topo && (x < melhor.x || (x === melhor.x && baixo < melhor.baixo)))
           : baixo < melhor.baixo || (baixo === melhor.baixo && x < melhor.x));
-        if (ganha) melhor = { x, y, rot, p, baixo };
+        if (ganha) melhor = { x, y, rot, p, baixo, topo: y + p.primeira };
       }
       if (!melhor) { fora.push(n.id); continue; }
       filme.ocupar(melhor.p, melhor.x, melhor.y);
@@ -207,7 +228,61 @@
       fundo = Math.max(fundo, melhor.baixo * CELULA);
       soma += melhor.baixo * 4096 + melhor.x; // desempate: peças mais em cima (e mais à esquerda)
     }
-    return { pos, fora, fundo, soma };
+    return { pos, fora, fundo, soma, receita: { ordem: novas, jeito } };
+  }
+
+  // Passada de "tapar buracos": pega as peças que terminam mais embaixo (as que definem o tamanho da
+  // folha) e tenta colocar cada uma no primeiro espaço livre mais acima, com as outras paradas onde estão.
+  // Se subir, fica lá. Repete enquanto encurtar a folha e houver tempo.
+  function compactar(largura, espaco, girar, lista, r, prazo, agora) {
+    const colunas = Math.floor(largura / CELULA + 1e-6);
+    const d = Math.max(0, Math.ceil(espaco / CELULA - 1e-6));
+    const pecas = lista.filter((n) => r.pos[n.id]).map((n) => {
+      const q = r.pos[n.id];
+      return { n, rot: q.rot, x: Math.round(q.x / CELULA), y: Math.round(q.y / CELULA), p: medir(n.perfis[q.rot]) };
+    });
+    const baixoDe = (q) => q.y + q.p.ultima + 1;
+    let mexeu = false;
+    for (let volta = 0; volta < 6 && agora() < prazo; volta++) {
+      let subiu = false;
+      pecas.sort((a, b) => baixoDe(b) - baixoDe(a));
+      const tentar = Math.min(pecas.length, 40);
+      for (let k = 0; k < tentar && agora() < prazo; k++) {
+        const alvo = pecas[k];
+        const antes = baixoDe(alvo);
+        const filme = new Filme(colunas);
+        for (const q of pecas) if (q !== alvo) filme.ocupar(q.p, q.x, q.y);
+        const opcoes = girar && !alvo.n.fixo ? [0, 90] : [alvo.rot];
+        let melhor = null;
+        for (const rot of opcoes) {
+          const p = medir(alvo.n.perfis[rot]);
+          if (p.dir - p.esq > colunas) continue;
+          if (!p.gordo || p.gordo.d !== d) p.gordo = engordar(p, d);
+          const xMin = 0 - p.esq, xMax = colunas - p.dir;
+          for (let y = 0 - p.primeira; y + p.ultima + 1 < (melhor ? melhor.baixo : antes); y++) {
+            if (filme.sobra(y + p.primeira - d)) break;
+            const salto = filme.proximoY(p, y);
+            if (salto !== y) { y = salto - 1; continue; }
+            const x = filme.xLivre(p.gordo, xMin, xMax, y);
+            if (x !== null) { melhor = { x, y, rot, p, baixo: y + p.ultima + 1 }; break; }
+          }
+        }
+        if (melhor && melhor.baixo < antes) {
+          Object.assign(alvo, { x: melhor.x, y: melhor.y, rot: melhor.rot, p: melhor.p });
+          subiu = mexeu = true;
+        }
+      }
+      if (!subiu) break;
+    }
+    if (!mexeu) return r;
+    const pos = {};
+    let fundo = 0, soma = 0;
+    for (const q of pecas) {
+      pos[q.n.id] = { x: q.x * CELULA, y: q.y * CELULA, rot: q.rot };
+      fundo = Math.max(fundo, baixoDe(q) * CELULA);
+      soma += baixoDe(q) * 4096 + q.x;
+    }
+    return { ...r, pos, fundo, soma, compactada: true };
   }
 
   function prepararPerfis(n) {
@@ -218,7 +293,7 @@
 
   // Tenta várias combinações de ordem e de giro e fica com a que gasta menos filme.
   // limiteMs: tempo máximo de tentativas (as primeiras rodam sempre).
-  function encaixar({ largura, espaco = 5, girar = true, novas, limiteMs = 700 }) {
+  function encaixar({ largura, espaco = 5, girar = true, novas, limiteMs = 700, aoMelhorar }) {
     const lista = novas.map(prepararPerfis);
     const area = (n) => n.w * n.h;
     const maior = (n) => Math.max(n.w, n.h);
@@ -241,32 +316,78 @@
       // (o espaço que sobra fica contínuo embaixo e do lado)
       const melhorou = !melhor || r.fora.length < melhor.fora.length || (r.fora.length === melhor.fora.length &&
         (r.fundo < melhor.fundo || (r.fundo === melhor.fundo && r.soma < melhor.soma)));
-      if (melhorou) { melhor = r; semMelhora = 0; }
+      if (melhorou) { melhor = r; semMelhora = 0; if (aoMelhorar) aoMelhorar(melhor); }
       else semMelhora++;
     };
+    // a busca usa 80% do tempo; o resto fica para a passada de tapar buracos no fim
+    const acabou = () => agora() - inicio > limiteMs * 0.8;
     for (const [ordem, giro, criterio] of tentativas) {
-      if (feitas >= 3 && agora() - inicio > limiteMs) break;
+      if (feitas >= 3 && acabou()) break;
       if (!girar && giro !== 'livre') continue;
       guardar(rodada(largura, espaco, girar, ordem, { giro, criterio }));
     }
 
-    // Com o tempo que sobra: sorteia outras combinações (ordem das peças, giro de cada arte e critério)
-    // e fica com a melhor. O sorteio é sempre o mesmo para a mesma fila, então o resultado não "pula".
     let semente = 20261112 + lista.length * 7919;
     const sorte = () => ((semente = (Math.imul(semente, 1103515245) + 12345) >>> 0) / 4294967296);
-    const formas = [...new Set(lista.map((n) => n.forma || n.id))];
-    // para antes do tempo quando 120 sorteios seguidos não acharam nada melhor (filas pequenas respondem rápido)
-    while (agora() - inicio < limiteMs && semMelhora < 120) {
+    // artes que podem ficar tanto em pé quanto deitadas (as outras não têm escolha)
+    const formas = [...new Set(lista.filter((n) => girar && !n.fixo && largDesenho(n.perfis[0]) <= Math.floor(largura / CELULA) &&
+      largDesenho(n.perfis[90]) <= Math.floor(largura / CELULA)).map((n) => n.forma || n.id))];
+
+    // 1) Poucas artes diferentes: testa TODAS as combinações de giro (cada arte em pé ou deitada),
+    //    em duas ordens. Assim a combinação que alguém acharia testando à mão sempre entra na conta.
+    if (formas.length && formas.length <= 9) {
+      const total = 1 << formas.length;
+      for (const ordem of [porArea, porMaior]) {
+        for (let m = 0; m < total && !acabou(); m++) {
+          const porForma = new Map(formas.map((f, i) => [f, (m >> i) & 1 ? 90 : 0]));
+          guardar(rodada(largura, espaco, girar, ordem, { giro: 'livre', criterio: 'fundo', porForma }));
+        }
+      }
+    }
+
+    // 2) Busca local a partir da melhor montagem: troca a ordem de duas peças, vira o giro de uma arte
+    //    ou muda a regra de posição; fica com a mudança se não piorar. De vez em quando recomeça de um
+    //    sorteio novo. O sorteio é sempre o mesmo para a mesma fila, então o resultado não "pula".
+    const qual = () => { const t = sorte(); return t < 0.5 ? 'fundo' : t < 0.75 ? 'topo' : 'esquerda'; };
+    const sortear = () => {
       const peso = new Map(lista.map((n) => [n, area(n) * (0.35 + sorte() * 1.3)]));
-      const ordem = sorte() < 0.2
-        ? [...lista].sort(() => sorte() - 0.5)
-        : [...lista].sort((a, b) => peso.get(b) - peso.get(a));
+      const ordem = sorte() < 0.2 ? [...lista].sort(() => sorte() - 0.5) : [...lista].sort((a, b) => peso.get(b) - peso.get(a));
       const porForma = new Map();
-      if (girar) for (const f of formas) { const t = sorte(); porForma.set(f, t < 0.4 ? 'livre' : t < 0.7 ? 0 : 90); }
-      const qual = () => { const t = sorte(); return t < 0.45 ? 'fundo' : t < 0.7 ? 'topo' : 'esquerda'; };
-      // metade das vezes um critério só; na outra metade cada peça sorteia o seu
-      const jeito = sorte() < 0.5 ? { giro: 'livre', criterio: qual(), porForma } : { giro: 'livre', criterioDaPeca: qual, porForma };
-      guardar(rodada(largura, espaco, girar, ordem, jeito));
+      for (const f of formas) { const t = sorte(); porForma.set(f, t < 0.4 ? 'livre' : t < 0.7 ? 0 : 90); }
+      return { ordem, jeito: sorte() < 0.5 ? { giro: 'livre', criterio: qual(), porForma } : { giro: 'livre', criterioDaPeca: qual, porForma } };
+    };
+    let atual = melhor;
+    while (!acabou() && semMelhora < 400) {
+      let receita;
+      if (sorte() < 0.15 || !atual.receita) receita = sortear();
+      else {
+        const base = atual.receita;
+        const ordem = [...base.ordem];
+        const jeito = { ...base.jeito, porForma: new Map(base.jeito.porForma || []) };
+        const t = sorte();
+        if (t < 0.4 && ordem.length > 1) { // troca duas peças de lugar na ordem
+          const i = Math.floor(sorte() * ordem.length), j = Math.floor(sorte() * ordem.length);
+          [ordem[i], ordem[j]] = [ordem[j], ordem[i]];
+        } else if (t < 0.55 && ordem.length > 1) { // leva uma peça para a frente
+          const i = Math.floor(sorte() * ordem.length), [p] = ordem.splice(i, 1);
+          ordem.splice(Math.floor(sorte() * i), 0, p);
+        } else if (t < 0.85 && formas.length) { // vira o giro de uma arte
+          const f = formas[Math.floor(sorte() * formas.length)], v = jeito.porForma.get(f);
+          jeito.porForma.set(f, v === 0 ? 90 : v === 90 ? (sorte() < 0.5 ? 0 : 'livre') : (sorte() < 0.5 ? 0 : 90));
+        } else { delete jeito.criterioDaPeca; jeito.criterio = qual(); }
+        receita = { ordem, jeito };
+      }
+      const r = rodada(largura, espaco, girar, receita.ordem, receita.jeito);
+      guardar(r);
+      const naoPiorou = r.fora.length < atual.fora.length || (r.fora.length === atual.fora.length && (r.fundo < atual.fundo || (r.fundo === atual.fundo && r.soma <= atual.soma)));
+      if (naoPiorou) atual = r;
+      else if (sorte() < 0.03) atual = melhor; // volta para a melhor de todas de vez em quando
+    }
+    // tapa buracos na melhor montagem (e também na segunda volta, se ainda houver tempo)
+    const compacta = compactar(largura, espaco, girar, lista, melhor, inicio + Math.max(limiteMs, 50), agora);
+    if (compacta !== melhor && (compacta.fundo < melhor.fundo || (compacta.fundo === melhor.fundo && compacta.soma < melhor.soma))) {
+      melhor = compacta;
+      if (aoMelhorar) aoMelhorar(melhor);
     }
     melhor.tentativas = feitas;
     return melhor;
@@ -288,7 +409,10 @@
     return false;
   }
 
-  const Encaixe = { encaixar, sobrepoe, perfilRetangulo, CELULA };
+  // Onde está o desenho dentro da caixa da peça (em células): {esq, dir, primeira, ultima}
+  function limites(p) { medir(p); return { esq: p.esq, dir: p.dir, primeira: p.primeira, ultima: p.ultima }; }
+
+  const Encaixe = { encaixar, sobrepoe, perfilRetangulo, limites, CELULA };
   if (typeof module === 'object' && module.exports) module.exports = Encaixe;
   else raiz.Encaixe = Encaixe;
 })(typeof self !== 'undefined' ? self : this);

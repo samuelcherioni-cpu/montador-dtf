@@ -8,20 +8,25 @@ const os = require('os');
 const fs = require('fs');
 
 if (!isMainThread) {
-  const { gerarCenarios, avaliar } = require('./cenarios.js');
+  const { gerarCenario, avaliar } = require('./cenarios.js');
   const Encaixe = require(workerData.encaixe);
-  const cenarios = gerarCenarios(workerData.n, workerData.semente);
   const saida = [];
-  for (let i = workerData.inicio; i < cenarios.length; i += workerData.passo) saida.push(avaliar(Encaixe, cenarios[i], { limiteMs: workerData.ms }));
+  // --ms auto: o mesmo tempo que a tela dá ao trabalhador (de 2 a 8 s, conforme o número de peças)
+  const tempo = (c) => { if (workerData.ms !== 'auto') return Number(workerData.ms); const n = c.artes.reduce((s, a) => s + a.qtd, 0); return Math.min(8000, Math.max(2000, 1500 + n * 40)); };
+  for (let i = workerData.inicio; i < workerData.n; i += workerData.passo) {
+    const c = gerarCenario(i, workerData.semente); // gera, mede e descarta: memória baixa
+    saida.push(avaliar(Encaixe, c, { limiteMs: tempo(c) }));
+  }
   parentPort.postMessage(saida);
   return;
 }
 
 const arg = (nome, padrao) => { const i = process.argv.indexOf('--' + nome); return i > 0 ? process.argv[i + 1] : padrao; };
-const n = Number(arg('n', 1000)), ms = Number(arg('ms', 500)), semente = Number(arg('semente', 1));
+const n = Number(arg('n', 1000)), ms = arg('ms', '500'), semente = Number(arg('semente', 1));
 const encaixe = path.resolve(arg('encaixe', path.join(__dirname, '..', 'site', 'encaixe.js')));
 const saidaArq = arg('saida', null);
-const passo = Math.max(1, Math.min(os.cpus().length - 2, 10));
+// --nucleos: quantos núcleos usar (padrão: metade dos que existem, para o computador continuar usável)
+const passo = Math.max(1, Number(arg('nucleos', Math.floor(os.cpus().length / 2))));
 
 const inicio = Date.now();
 Promise.all(Array.from({ length: passo }, (_, k) => new Promise((ok, falha) => {

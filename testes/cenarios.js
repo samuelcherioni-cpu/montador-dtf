@@ -49,6 +49,18 @@ const FORMAS = {
   },
   // logo com raios: barra no meio e raios descendo e subindo nas pontas
   logoRaios: () => (u, v) => (v > 0.25 && v < 0.65 && u > 0.08 && u < 0.92) || (u < 0.12 && v > 0.4 && u > (v - 0.4) * 0.15) || (u > 0.85 && v < 0.6 && u < 0.85 + (0.6 - v) * 0.25),
+  // silhueta irregular com borda pontilhada, como um personagem em halftone
+  mancha: (r) => {
+    const f = [r.entre(0, 6), r.entre(0, 6), r.entre(0, 6)], amp = [r.entre(0.04, 0.12), r.entre(0.03, 0.09), r.entre(0.02, 0.06)];
+    const cx = r.entre(0.42, 0.58), cy = r.entre(0.42, 0.58);
+    return (u, v, x, y) => {
+      const a = Math.atan2(v - cy, u - cx), d = Math.hypot((u - cx) / 0.5, (v - cy) / 0.5);
+      const borda = 0.78 + amp[0] * Math.sin(3 * a + f[0]) + amp[1] * Math.sin(7 * a + f[1]) + amp[2] * Math.sin(13 * a + f[2]);
+      if (d <= borda * 0.9) return true;
+      // faixa de pontos (halftone) perto da borda
+      return d <= borda * 1.08 && ((x % 4) < 2) && ((y % 4) < 2);
+    };
+  },
   estrela: () => (u, v) => {
     const x = u - 0.5, y = v - 0.5, a = Math.atan2(y, x), rr = Math.hypot(x, y);
     return rr <= 0.5 * (0.55 + 0.45 * Math.abs(Math.cos(2.5 * a)));
@@ -88,6 +100,30 @@ function perfil(G) {
   return { cols: G.cols, linhas: G.linhas, spans, area };
 }
 
+// Área do desenho engordado em r mm para todos os lados. Com espaço de 5 mm entre artes, as artes
+// engordadas em 2 mm nunca se sobrepõem, então a soma dessas áreas é um mínimo de filme honesto.
+function areaEngordada(G, r) {
+  const { cols, linhas, g } = G;
+  const horiz = new Uint8Array(cols * linhas);
+  for (let y = 0; y < linhas; y++) {
+    // varre dos dois lados para marcar quem tem desenho a até r colunas
+    let prox = -1e9;
+    for (let x = 0; x < cols; x++) { if (g[y * cols + x]) prox = x; if (x - prox <= r) horiz[y * cols + x] = 1; }
+    prox = 1e9;
+    for (let x = cols - 1; x >= 0; x--) { if (g[y * cols + x]) prox = x; if (prox - x <= r) horiz[y * cols + x] = 1; }
+  }
+  let area = 0;
+  for (let x = 0; x < cols; x++) {
+    let prox = -1e9;
+    const col = new Uint8Array(linhas);
+    for (let y = 0; y < linhas; y++) { if (horiz[y * cols + x]) prox = y; if (y - prox <= r) col[y] = 1; }
+    prox = 1e9;
+    for (let y = linhas - 1; y >= 0; y--) { if (horiz[y * cols + x]) prox = y; if (prox - y <= r) col[y] = 1; }
+    for (let y = 0; y < linhas; y++) area += col[y];
+  }
+  return area;
+}
+
 function arte(r, tipo, wcm, hcm) {
   const cols = Math.max(10, Math.round(wcm * 10)), linhas = Math.max(10, Math.round(hcm * 10));
   let G = pintar(grade(cols, linhas), FORMAS[tipo](r));
@@ -95,7 +131,9 @@ function arte(r, tipo, wcm, hcm) {
   G = comMargem(G, m);
   if (G.cols > LARGURA_UTIL && G.linhas > LARGURA_UTIL) return null;
   const p0 = perfil(G), p90 = perfil(girar90(G));
-  return { tipo, w: G.cols, h: G.linhas, area: p0.area, perfis: { 0: p0, 90: p90 } };
+  const linhasCom = p0.spans.map((t, y) => (t.length ? y : -1)).filter((y) => y >= 0);
+  let esq = 1e9, dir = 0; for (const t of p0.spans) if (t.length) { esq = Math.min(esq, t[0]); dir = Math.max(dir, t[t.length - 1]); }
+  return { tipo, w: G.cols, h: G.linhas, dw: dir - esq, dh: linhasCom[linhasCom.length - 1] - linhasCom[0] + 1, area: p0.area, areaComEspaco: areaEngordada(G, 2), perfis: { 0: p0, 90: p90 } };
 }
 
 // ---------- tipos de fila ----------
@@ -113,6 +151,7 @@ const TIPOS_FILA = {
   ],
   'formas irregulares': (r) => lista(r, r.inteiro(2, 6), () => [r.entre(12, 32), r.entre(12, 32)], () => r.inteiro(1, 6), ['retrato', 'anel', 'U', 'L', 'triangulo', 'estrela', 'logoRaios', 'diagonal']),
   'texto': (r) => lista(r, r.inteiro(2, 6), () => [r.entre(10, 50), r.entre(3, 12)], () => r.inteiro(1, 10), ['texto', 'logoRaios']),
+  'poucas artes grandes': (r) => lista(r, r.inteiro(3, 8), () => [r.entre(22, 40), r.entre(25, 42)], () => r.inteiro(1, 2), ['mancha', 'retrato', 'mancha', 'retangulo', 'elipse', 'logoRaios']),
   'fila longa': (r) => lista(r, r.inteiro(5, 12), () => [r.entre(5, 30), r.entre(5, 30)], () => r.inteiro(4, 25)),
 };
 const NOMES_FORMAS = Object.keys(FORMAS);
@@ -127,16 +166,19 @@ function lista(r, tipos, tamanho, quantidade, formas = NOMES_FORMAS) {
   return saida;
 }
 
-function gerarCenarios(n, semente = 1) {
+// Um cenário só (o de número i): cada núcleo gera só os que vai medir, sem guardar todos na memória.
+function gerarCenario(i, semente = 1) {
   const nomes = Object.keys(TIPOS_FILA);
-  const cenarios = [];
-  for (let i = 0; i < n; i++) {
-    const r = sorteador(semente * 100003 + i * 7919);
-    const tipo = nomes[i % nomes.length];
+  const tipo = nomes[i % nomes.length];
+  for (let tentativa = 0; ; tentativa++) {
+    const r = sorteador(semente * 100003 + i * 7919 + tentativa * 104729);
     const artes = TIPOS_FILA[tipo](r);
-    if (!artes.length) { i--; continue; }
-    cenarios.push({ id: i, tipo, artes });
+    if (artes.length) return { id: i, tipo, artes };
   }
+}
+function gerarCenarios(n, semente = 1) {
+  const cenarios = [];
+  for (let i = 0; i < n; i++) cenarios.push(gerarCenario(i, semente));
   return cenarios;
 }
 
@@ -156,8 +198,9 @@ function avaliar(Encaixe, c, opcoes = {}) {
   const colocadas = novas.filter((n) => r.pos[n.id]);
   let erro = null;
   for (const n of colocadas) {
-    const p = r.pos[n.id], pf = n.perfis[p.rot];
-    if (p.x < 0 || p.y < 0 || p.x + pf.cols > LARGURA_UTIL) { erro = 'fora da largura: ' + n.id; break; }
+    const p = r.pos[n.id], lim = Encaixe.limites ? Encaixe.limites(n.perfis[p.rot]) : { esq: 0, dir: n.perfis[p.rot].cols, primeira: 0 };
+    // só a parte desenhada precisa estar dentro do filme
+    if (p.x + lim.esq < 0 || p.y + lim.primeira < 0 || p.x + lim.dir > LARGURA_UTIL) { erro = 'fora do filme: ' + n.id; break; }
   }
   if (!erro) {
     const caixas = colocadas.map((n) => { const p = r.pos[n.id], pf = n.perfis[p.rot]; return { n, p, pf }; });
@@ -173,7 +216,10 @@ function avaliar(Encaixe, c, opcoes = {}) {
     }
   }
   const area = c.artes.reduce((s, a) => s + a.area * a.qtd, 0);
-  const minimo = Math.max(area / LARGURA_UTIL, ...c.artes.map((a) => Math.min(a.w, a.h)));
+  // mínimo de filme possível: área das artes engordadas em 2 mm (o espaço obrigatório entre elas)
+  // dividida pela largura (+2 mm de cada lado, onde a engorda pode sobrar para fora)
+  const areaEsp = c.artes.reduce((s, a) => s + a.areaComEspaco * a.qtd, 0);
+  const minimo = Math.max(areaEsp / (LARGURA_UTIL + 4), ...c.artes.map((a) => Math.min(a.dw, a.dh)));
   return {
     id: c.id, tipo: c.tipo, pecas: novas.length, fora: r.fora.length, fundo: r.fundo, ms, erro,
     aproveitamento: area / (LARGURA_UTIL * Math.max(1, r.fundo)), // parte desenhada / filme usado
@@ -181,4 +227,4 @@ function avaliar(Encaixe, c, opcoes = {}) {
   };
 }
 
-module.exports = { gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };
+module.exports = { gerarCenario, gerarCenarios, avaliar, pecasDo, TIPOS_FILA, LARGURA_UTIL, ESPACO };

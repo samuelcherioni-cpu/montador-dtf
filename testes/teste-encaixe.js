@@ -133,6 +133,34 @@ caso('arte pequena entra num vão interno (entre dois braços de uma grande)', (
   assert(!sobrepoe(u, r.pos.U.x, r.pos.U.y, perfilRetangulo(100, 100), r.pos.P.x, r.pos.P.y), 'invadiu o U');
 });
 
+caso('sobra transparente em volta do PNG não gasta filme', () => {
+  // caixa de 20 x 12 cm com o desenho de 14 x 6 cm no meio (3 cm de sobra transparente em volta)
+  const p = perfilRetangulo(200, 120);
+  p.spans = [];
+  for (let y = 0; y < 120; y++) p.spans[y] = y >= 30 && y < 90 ? [30, 170] : [];
+  const novas = [];
+  for (let i = 0; i < 10; i++) novas.push({ id: 's' + i, forma: 's', w: 200, h: 120, rot: 0, fixo: true, perfis: { 0: p, 90: girarPerfil(p) } });
+  const r = encaixar({ largura: LARG, espaco: 5, novas });
+  // desenhos de 14 cm: cabem 3 por linha (3 x 14 + 2 x 0,5); 4 linhas de 6 cm + 0,5 de espaço
+  assert(r.fundo <= 4 * 60 + 3 * 5, 'a sobra transparente está gastando filme: ' + r.fundo);
+  for (const id of Object.keys(r.pos)) {
+    const q = r.pos[id];
+    assert(q.x + 30 >= 0 && q.x + 170 <= LARG && q.y + 30 >= 0, id + ' com desenho fora do filme: ' + JSON.stringify(q));
+  }
+});
+
+caso('peça pequena adicionada por último vai para um buraco lá em cima', () => {
+  const novas = [];
+  // duas artes grandes deixam um vão no alto à direita; a pequena vem por último
+  novas.push({ id: 'A', w: 300, h: 400, rot: 0, fixo: true }, { id: 'B', w: 200, h: 150, rot: 0, fixo: true });
+  for (let i = 0; i < 6; i++) novas.push({ id: 'G' + i, w: 560, h: 100, rot: 0, fixo: true });
+  const semPequena = encaixar({ largura: LARG, espaco: 5, novas: [...novas] });
+  novas.push({ id: 'p', w: 80, h: 80, rot: 0, fixo: true });
+  const r = encaixar({ largura: LARG, espaco: 5, novas });
+  // a pequena tem que caber num buraco: a folha não pode ficar maior por causa dela
+  assert(r.fundo <= semPequena.fundo, 'a pequena aumentou a folha: ' + semPequena.fundo + ' -> ' + r.fundo);
+});
+
 caso('espaço zero encosta mas não sobrepõe', () => {
   const novas = [];
   for (let i = 0; i < 30; i++) novas.push({ id: 'z' + i, w: 94, h: 80, rot: 0 });
