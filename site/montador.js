@@ -44,19 +44,17 @@
   }
   function comprimento() {
     if (est.modo === 'fixo') return Math.round(est.metros * 1000);
-    return Math.max(100, Math.ceil(necessario() / 100 - 1e-9) * 100);
+    return Math.max(50, Math.ceil(necessario() / 10 - 1e-9) * 10); // arredonda para o centímetro de cima
   }
 
   // ---------- encaixe ----------
   function encaixarPecas(pecas) {
     if (!pecas.length) return;
-    const ids = new Set(pecas.map((p) => p.id));
-    const fixas = est.pecas.filter((p) => !ids.has(p.id)).map((p) => {
-      const m = medida(p);
-      return { x: p.x - est.margem, y: p.y - est.margem, w: m.w, h: m.h };
+    const novas = pecas.map((p) => {
+      const a = arteDe(p.arte);
+      return { id: p.id, forma: a.id, w: a.w, h: a.h, rot: p.rot, fixo: !!a.rotFixa, perfis: perfis(a) };
     });
-    const novas = pecas.map((p) => { const a = arteDe(p.arte); return { id: p.id, w: a.w, h: a.h, rot: p.rot, fixo: !!a.rotFixa }; });
-    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, fixas, novas });
+    const r = Encaixe.encaixar({ largura: larguraUtil(), espaco: est.espaco, girar: est.girar, novas });
     for (const p of pecas) {
       const pos = r.pos[p.id];
       if (pos) { p.x = pos.x + est.margem; p.y = pos.y + est.margem; p.rot = pos.rot; }
@@ -68,6 +66,38 @@
       avisar(`${r.fora.length} cópia(s) não cabem na largura do filme. Diminua a arte.`, true);
     }
   }
+  // Formato real da arte: em cada linha de 1 mm, onde começa e termina a parte não transparente.
+  // Fica guardado até a arte mudar de tamanho.
+  function perfis(a) {
+    const chave = a.w + 'x' + a.h;
+    if (a.perfis && a.perfis.chave === chave) return a.perfis;
+    const C = Encaixe.CELULA;
+    const fazer = (rot) => {
+      const cols = Math.ceil((rot ? a.h : a.w) / C - 1e-6), linhas = Math.ceil((rot ? a.w : a.h) / C - 1e-6);
+      const cv = document.createElement('canvas');
+      cv.width = cols; cv.height = linhas;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      if (rot) { ctx.translate(cols, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C); }
+      else ctx.drawImage(a.bitmap, 0, 0, a.w / C, a.h / C);
+      const d = ctx.getImageData(0, 0, cols, linhas).data;
+      const L = new Int16Array(linhas), R = new Int16Array(linhas);
+      for (let y = 0; y < linhas; y++) {
+        let l = -1, r = -1;
+        for (let x = 0; x < cols; x++) if (d[(y * cols + x) * 4 + 3] > 6) { if (l < 0) l = x; r = x + 1; }
+        if (l >= 0) { L[y] = l; R[y] = r; }
+      }
+      return { cols, linhas, L, R };
+    };
+    a.perfis = { chave, 0: fazer(0), 90: fazer(90) };
+    let area = 0;
+    const p0 = a.perfis[0];
+    for (let y = 0; y < p0.linhas; y++) area += Math.max(0, p0.R[y] - p0.L[y]);
+    a.perfis.area = area * Encaixe.CELULA * Encaixe.CELULA;
+    return a.perfis;
+  }
+
   // Toda mudança refaz o encaixe de todas as artes, para a fila ficar sempre compacta
   function reorganizar() {
     for (const p of est.pecas) p.rot = arteDe(p.arte).rot;
@@ -107,6 +137,7 @@
         if (w > u) { h = (h * u) / w; w = u; }
         const arte = {
           id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), bitmap, url: URL.createObjectURL(f),
+          previa: await previa(bitmap),
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
           transparente: temTransparencia(bitmap), qtd: 1,
         };
@@ -121,6 +152,18 @@
     desenhar();
   }
   const arred = (mm) => Math.round(mm * 10) / 10;
+
+  // Cópia leve (até 512 px) só para mostrar na tela; o PNG final usa sempre a imagem original
+  async function previa(bitmap) {
+    const k = Math.min(1, 512 / Math.max(bitmap.width, bitmap.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(bitmap.width * k)); c.height = Math.max(1, Math.round(bitmap.height * k));
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bitmap, 0, 0, c.width, c.height);
+    const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+    return URL.createObjectURL(blob);
+  }
 
   function temTransparencia(bitmap) {
     const c = document.createElement('canvas');
@@ -174,6 +217,7 @@
     est.pecas = est.pecas.filter((p) => p.arte !== arte.id);
     est.artes = est.artes.filter((a) => a !== arte);
     URL.revokeObjectURL(arte.url);
+    URL.revokeObjectURL(arte.previa);
     if (arte.bitmap.close) arte.bitmap.close();
     reorganizar();
   }
@@ -204,7 +248,7 @@
       if (dpi < DPI_MINIMO) selos.push(`<span class="selo atencao">Resolução baixa · ${Math.round(dpi)} DPI</span>`);
       if (!a.transparente) selos.push('<span class="selo atencao">Sem fundo transparente</span>');
       return `<article class="arte glass brilho${selArtes.has(a.id) ? ' marcada' : ''}" data-arte="${a.id}">
-        <div class="mini"><img src="${a.url}" alt=""></div>
+        <div class="mini"><img src="${a.previa}" alt=""></div>
         <div class="arte-info">
           <div class="arte-nome"><b title="${esc(a.nome)}">${esc(a.nome)}</b><span class="num">${a.pxW} × ${a.pxH} px</span></div>
           <div class="medidas">
@@ -281,10 +325,12 @@
     for (const c of caixas) {
       if (c.x < est.margem - 0.05 || c.x + c.w > FILME_MM - est.margem + 0.05 || c.y < est.margem - 0.05 || c.y + c.h > limiteY + 0.05) ruins.add(c.id);
     }
+    const formas = est.pecas.map((p) => perfis(arteDe(p.arte))[p.rot]);
     for (let i = 0; i < caixas.length; i++) {
       for (let j = i + 1; j < caixas.length; j++) {
         const a = caixas[i], b = caixas[j];
-        if (a.x < b.x + b.w - 0.05 && a.x + a.w > b.x + 0.05 && a.y < b.y + b.h - 0.05 && a.y + a.h > b.y + 0.05) { ruins.add(a.id); ruins.add(b.id); }
+        if (!(a.x < b.x + b.w - 0.05 && a.x + a.w > b.x + 0.05 && a.y < b.y + b.h - 0.05 && a.y + a.h > b.y + 0.05)) continue;
+        if (Encaixe.sobrepoe(formas[i], a.x, a.y, formas[j], b.x, b.y)) { ruins.add(a.id); ruins.add(b.id); }
       }
     }
     return ruins;
@@ -316,8 +362,8 @@
     for (const p of est.pecas) {
       const a = arteDe(p.arte), m = medida(p);
       const img = p.rot
-        ? `<img src="${a.url}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px;transform:translateX(${a.h * s}px) rotate(90deg)">`
-        : `<img src="${a.url}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px">`;
+        ? `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px;transform:translateX(${a.h * s}px) rotate(90deg)">`
+        : `<img src="${a.previa}" alt="" draggable="false" style="width:${a.w * s}px;height:${a.h * s}px">`;
       const cls = 'peca' + (est.sel.has(p.id) ? ' sel' : '') + (ruins.has(p.id) ? ' ruim' : '');
       html += `<div class="${cls}" data-peca="${p.id}" style="left:${p.x * s}px;top:${p.y * s}px;width:${m.w * s}px;height:${m.h * s}px" title="${esc(a.nome)} · ${cm(m.w)} × ${cm(m.h)} cm">${img}</div>`;
     }
@@ -350,7 +396,7 @@
     el.className = 'estado num ' + cls;
     $('btnBaixar').disabled = !pode;
   }
-  function areaPecas() { return est.pecas.reduce((s, p) => { const m = medida(p); return s + m.w * m.h; }, 0); }
+  function areaPecas() { return est.pecas.reduce((s, p) => s + perfis(arteDe(p.arte)).area, 0); }
 
   // ---------- arrastar e selecionar ----------
   function marcarSelecao() {
@@ -489,6 +535,12 @@
   }
   $('modalBaixar').addEventListener('click', (e) => { if (e.target === $('modalBaixar') || e.target.closest('[data-fechar]')) fecharModal(); });
 
+  // Pausa curtinha para a tela atualizar a barra. setTimeout fica até 1 s por vez quando a aba não
+  // está em primeiro plano; a mensagem por MessageChannel não sofre esse freio.
+  function ceder() {
+    return new Promise((ok) => { const c = new MessageChannel(); c.port1.onmessage = () => ok(); c.port2.postMessage(0); });
+  }
+
   function nomeArquivo(L) {
     const id = est.ident.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
     return `fila-dtf-57cm-${fmt(L / 1000, 2)}m${id ? '-' + id : ''}.png`;
@@ -514,7 +566,7 @@
       });
       const cv = document.createElement('canvas');
       cv.width = FILME_PX;
-      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      const ctx = cv.getContext('2d'); // na placa de vídeo: desenhar as artes grandes fica rápido; lê só uma vez por faixa
       const partes = await Png.gerarPNG({
         largura: FILME_PX, altura, dpi: DPI, alturaFaixa: 512,
         faixa: async (y0, n) => {
@@ -524,12 +576,21 @@
           ctx.imageSmoothingQuality = 'high';
           for (const q of pecas) {
             if (q.y > y0 + n || q.y + q.h < y0) continue;
+            // desenha só a fatia da arte que cai nesta faixa (desenhar a imagem inteira a cada faixa é lento)
+            const bmp = q.a.bitmap;
+            const t0 = Math.max(0, y0 - q.y), t1 = Math.min(q.h, y0 + n - q.y); // trecho da altura da peça, em px
+            if (t1 <= t0) continue;
             ctx.save();
             if (q.rot) {
+              // girada 90°: a largura da imagem original corre para baixo no filme
+              const s0 = (t0 / q.h) * bmp.width, s1 = (t1 / q.h) * bmp.width;
               ctx.translate(q.x + q.w, q.y);
               ctx.rotate(Math.PI / 2);
-              ctx.drawImage(q.a.bitmap, 0, 0, q.h, q.w);
-            } else ctx.drawImage(q.a.bitmap, q.x, q.y, q.w, q.h);
+              ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, t0, 0, t1 - t0, q.w);
+            } else {
+              const s0 = (t0 / q.h) * bmp.height, s1 = (t1 / q.h) * bmp.height;
+              ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, q.x, q.y + t0, q.w, t1 - t0);
+            }
             ctx.restore();
           }
           if (est.ident) {
@@ -542,7 +603,7 @@
             }
           }
           const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
-          await new Promise((ok) => setTimeout(ok, 0)); // deixa a tela respirar
+          await ceder(); // deixa a tela respirar
           return dados;
         },
         aoProgresso: (f) => {

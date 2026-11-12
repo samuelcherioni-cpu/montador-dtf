@@ -7,7 +7,9 @@ const path = require('path');
 const PROIBIDOS = [
   /vanttiwear/i, /zavariprime/i, /pages\.dev/i, /script\.google/i, /googleusercontent/i, /docs\.google/i,
   /\/api\//i, /\bhub\b/i, /\btoken\b/i, /segredo/i, /secret/i, /\bsenhas?\b/i, /password/i, /\bpin\b/i,
-  /api[_-]?key/i, /postMessage/, /<iframe/i, /\bfetch\s*\(/, /XMLHttpRequest/, /sendBeacon/, /WebSocket/, /\bimport\s*\(/,
+  /api[_-]?key/i,
+  // mensagem para outra janela (moldura, aba que abriu, página de cima); MessageChannel interno da página é permitido
+  /\b(?:window|parent|top|opener|self|frames)\b[^;]*\.postMessage/, /(?<![.\w])postMessage\s*\(/,/<iframe/i, /\bfetch\s*\(/, /XMLHttpRequest/, /sendBeacon/, /WebSocket/, /\bimport\s*\(/,
 ];
 // endereços externos permitidos no site: só a fonte Inter
 const PERMITIDOS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];

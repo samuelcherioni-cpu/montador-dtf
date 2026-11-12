@@ -1,7 +1,7 @@
 // node testes/teste-encaixe.js — confere o encaixe: nada sobreposto, tudo dentro da largura, espaço mínimo e cópias certas.
 'use strict';
 const assert = require('assert');
-const { encaixar } = require('../site/encaixe.js');
+const { encaixar, sobrepoe, perfilRetangulo } = require('../site/encaixe.js');
 
 const LARG = 564; // 57 cm menos 3 mm de cada lado
 let falhas = 0;
@@ -71,13 +71,51 @@ caso('arte larga demais só entra girada', () => {
   conferir(novas, r2, 5);
 });
 
-caso('novas entram sem mexer nas que já estão', () => {
-  const fixas = [{ x: 0, y: 0, w: 300, h: 300 }, { x: 400, y: 50, w: 100, h: 100 }];
-  const novas = [];
-  for (let i = 0; i < 40; i++) novas.push({ id: 'n' + i, w: 30 + sorteio() * 120, h: 30 + sorteio() * 120, rot: 0 });
-  const r = encaixar({ largura: LARG, espaco: 5, fixas, novas });
-  assert.strictEqual(r.fora.length, 0);
-  conferir(novas, r, 5, fixas);
+// perfil de uma arte em "L": caixa cheia, menos um canto vazio (transparente) em cima à esquerda
+function perfilL(cols, linhas, vazioCols, vazioLinhas) {
+  const p = perfilRetangulo(cols, linhas);
+  for (let i = 0; i < vazioLinhas; i++) p.L[i] = vazioCols;
+  return p;
+}
+function girarPerfil(p) { // 90° no sentido horário, como na tela
+  const q = perfilRetangulo(p.linhas, p.cols);
+  for (let i = 0; i < q.linhas; i++) {
+    let l = 32767, r = -1;
+    for (let j = 0; j < p.linhas; j++) if (i >= p.L[j] && i < p.R[j]) { const x = p.linhas - 1 - j; if (x < l) l = x; if (x + 1 > r) r = x + 1; }
+    q.L[i] = r > l ? l : 0; q.R[i] = r > l ? r : 0;
+  }
+  return q;
+}
+
+caso('arte pequena entra no vão transparente de uma grande', () => {
+  const grande = perfilL(300, 250, 150, 120); // canto vazio de 15 × 12 cm
+  const novas = [
+    { id: 'G', w: 300, h: 250, rot: 0, fixo: true, perfis: { 0: grande, 90: girarPerfil(grande) } },
+    { id: 'P', w: 60, h: 60, rot: 0 },
+  ];
+  const r = encaixar({ largura: LARG, espaco: 5, novas });
+  assert.deepStrictEqual(r.pos.G, { x: 0, y: 0, rot: 0 });
+  assert(r.pos.P.y + 60 <= 120 - 5 && r.pos.P.x + 60 <= 150 - 5 || r.pos.P.x >= 305,
+    'a pequena devia ficar no vão ou ao lado: ' + JSON.stringify(r.pos.P));
+  assert.strictEqual(r.fundo, 250);
+});
+
+caso('várias pequenas preenchem o vão antes de descer o filme', () => {
+  const grande = perfilL(560, 300, 400, 150); // ocupa quase toda a largura, vão de 40 × 15 cm
+  const novas = [{ id: 'G', w: 560, h: 300, rot: 0, fixo: true, perfis: { 0: grande, 90: girarPerfil(grande) } }];
+  for (let i = 0; i < 12; i++) novas.push({ id: 'p' + i, w: 80, h: 60, rot: 0, fixo: true });
+  const r = encaixar({ largura: LARG, espaco: 5, novas });
+  const noVao = Object.keys(r.pos).filter((id) => id !== 'G' && r.pos[id].y + 60 <= 145).length;
+  assert(noVao >= 8, 'só ' + noVao + ' entraram no vão');
+  // as do vão não invadem a parte cheia da grande (com o espaço de 5 mm)
+  for (const id of Object.keys(r.pos)) {
+    if (id === 'G') continue;
+    const p = r.pos[id];
+    const tocaCheia = p.y < 300 + 5 && p.y + 60 > 150 - 5 ? true : p.y < 150 && p.x + 80 > 400 - 5;
+    assert(!tocaCheia || p.y >= 305, id + ' encosta na parte cheia: ' + JSON.stringify(p));
+  }
+  assert(sobrepoe(grande, 0, 0, perfilRetangulo(80, 60), 0, 0) === false, 'o canto vazio não conta como ocupado');
+  assert(sobrepoe(grande, 0, 0, perfilRetangulo(80, 60), 390, 0) === true, 'a parte cheia conta como ocupada');
 });
 
 caso('espaço zero encosta mas não sobrepõe', () => {
