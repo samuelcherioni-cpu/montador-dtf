@@ -58,7 +58,9 @@ jobs:
             exit 1
           fi
           # tira espaço e quebra de linha que vêm junto quando o valor é colado (o token é uma linha só)
-          token=$(printf '%s' "$TOKEN_COLADO" | tr -d '[:space:]')
+          # se colaram o comando de teste da Cloudflare (curl ... "Authorization: Bearer TOKEN"), usa só o token
+          token=$(printf '%s' "$TOKEN_COLADO" | grep -oE 'Bearer[[:space:]]+[A-Za-z0-9_-]+' | head -1 | awk '{print $2}')
+          [ -n "$token" ] || token=$(printf '%s' "$TOKEN_COLADO" | tr -d '[:space:]')
           conta=$(printf '%s' "$CONTA_COLADA" | tr -d '[:space:]')
           echo "::add-mask::$token"
           echo "CLOUDFLARE_API_TOKEN=$token" >> "$GITHUB_ENV"
