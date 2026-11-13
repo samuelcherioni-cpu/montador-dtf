@@ -8,7 +8,8 @@
   const FILME_PX = Math.round(FILME_MM * PX_MM);
   const IDENT_MM = 8;                 // faixa da identificação no fim do filme
   const DPI_MINIMO = 150;
-  const LIMIAR = 128;                 // transparência: de 50% para cima vira cheio, abaixo vira vazio
+  const LIMIAR = 128;
+  const BEIRADA = 3;                  // até quantos px a beirada procura a cor de dentro da arte (some a bordinha branca)                 // transparência: de 50% para cima vira cheio, abaixo vira vazio
   const MAX_METROS = 20;
 
   const $ = (id) => document.getElementById(id);
@@ -761,6 +762,33 @@
   }
   $('modalBaixar').addEventListener('click', (e) => { if (e.target === $('modalBaixar') || e.target.closest('[data-fechar]')) fecharModal(); });
 
+  // Pintar a beirada: a bordinha branca vem dos pixels da beirada que no PNG original são meio
+  // transparentes e de cor clara (o limiar deixa eles visíveis). Cada um recebe a cor do pixel totalmente
+  // opaco mais próximo, a até r px. O formato não muda e os pontos do halftone ficam inteiros (cada
+  // ponto tem um miolo opaco de onde puxar a cor); pixel sem vizinho opaco por perto fica como está.
+  function pintarBeirada(dados, W, H, r) {
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = (y * W + x) * 4, a = dados[i + 3];
+        if (a < LIMIAR || a >= 250) continue; // só os meio transparentes que o limiar vai deixar visíveis
+        let achou = -1;
+        for (let d = 1; d <= r && achou < 0; d++) {
+          // anel de distância d em volta do pixel (o mais perto ganha)
+          for (let dy = -d; dy <= d && achou < 0; dy++) {
+            const yy = y + dy; if (yy < 0 || yy >= H) continue;
+            const passo = dy === -d || dy === d ? 1 : 2 * d;
+            for (let dx = -d; dx <= d; dx += passo) {
+              const xx = x + dx; if (xx < 0 || xx >= W) continue;
+              const j = (yy * W + xx) * 4;
+              if (dados[j + 3] >= 250) { achou = j; break; }
+            }
+          }
+        }
+        if (achou >= 0) { dados[i] = dados[achou]; dados[i + 1] = dados[achou + 1]; dados[i + 2] = dados[achou + 2]; }
+      }
+    }
+  }
+
   // Pausa curtinha para a tela atualizar a barra. setTimeout fica até 1 s por vez quando a aba não
   // está em primeiro plano; a mensagem por MessageChannel não sofre esse freio.
   function ceder() {
@@ -811,6 +839,11 @@
       const partes = await Png.gerarPNG({
         largura: FILME_PX, altura, dpi: DPI, alturaFaixa: 512,
         faixa: async (y0, n) => {
+          // A faixa é desenhada com BEIRADA linhas a mais em cima e embaixo: a pintura da beirada precisa
+          // enxergar os vizinhos da faixa de cima e da de baixo (senão ficaria uma emenda entre faixas).
+          const y0real = y0, nreal = n;
+          y0 = Math.max(0, y0real - BEIRADA);
+          n = Math.min(altura, y0real + nreal + BEIRADA) - y0;
           // limpa a faixa anterior inteira ANTES de deslocar (com o deslocamento, a limpeza caía no lugar errado
           // e sobravam pedaços da faixa anterior nas partes transparentes)
           if (cv.height !== n) cv.height = n;
@@ -861,6 +894,7 @@
           }
           const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
           for (const [id, b] of abertas) if (ultimaLinha.get(id) <= y0 + n) { if (b.close) b.close(); abertas.delete(id); }
+          pintarBeirada(dados, FILME_PX, n, BEIRADA);
           // Limiar na transparência (como máscara de camada + limiar no Photoshop): todo pixel fica cheio
           // ou vazio. Borda meio transparente imprime branca no DTF e atrapalha o halftone.
           for (let i = 3; i < dados.length; i += 4) {
@@ -868,7 +902,8 @@
             else if (dados[i]) { dados[i] = 0; dados[i - 1] = 0; dados[i - 2] = 0; dados[i - 3] = 0; }
           }
           await ceder(); // deixa a tela respirar
-          return dados;
+          const ini = (y0real - y0) * FILME_PX * 4;
+          return dados.subarray(ini, ini + nreal * FILME_PX * 4);
         },
         aoProgresso: (f) => {
           const pct = Math.round(f * 100);
