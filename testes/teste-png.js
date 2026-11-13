@@ -93,5 +93,11 @@ const cor = (x, y) => [(x * 7) & 255, (y * 3) & 255, (x + y) & 255, (x + y) % 5 
   const arq = path.join(os.tmpdir(), 'fila-dtf-teste-3m.png');
   fs.writeFileSync(arq, g);
   console.log(`ok   filme de 3 m: ${LG} × ${AG} px, ${(g.length / 1e6).toFixed(1)} MB, ${((Date.now() - inicio) / 1000).toFixed(1)} s (${arq})`);
+  // DPI de um JPG (cabeçalho JFIF): 300 por polegada, 118 por cm (= 299,7) e sem unidade
+  const jfif = (unidade, x) => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0x4a, 0x46, 0x49, 0x46, 0, 1, 1, unidade, x >> 8, x & 255, x >> 8, x & 255, 0, 0, 0xff, 0xda, 0, 2]);
+  assert.strictEqual(lerDPI(jfif(1, 300)), 300);
+  assert.strictEqual(Math.round(lerDPI(jfif(2, 118))), 300);
+  assert.strictEqual(lerDPI(jfif(0, 1)), null);
+  console.log('ok   DPI de JPG (JFIF)');
   console.log('png: tudo certo');
 })().catch((e) => { console.log('FALHA ' + e.message); process.exit(1); });

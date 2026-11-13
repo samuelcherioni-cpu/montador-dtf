@@ -90,9 +90,10 @@
     return partes;
   }
 
-  // Lê o DPI gravado num PNG (bloco pHYs); devolve null se não houver
+  // Lê o DPI gravado no arquivo (PNG: bloco pHYs; JPG: cabeçalho JFIF); devolve null se não houver
   function lerDPI(bytes) {
     const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (bytes[0] === 0xff && bytes[1] === 0xd8) return lerDPIJpg(bytes, v);
     let i = 8;
     while (i + 8 <= bytes.length) {
       const tam = v.getUint32(i);
@@ -100,6 +101,24 @@
       if (tipo === 'pHYs' && tam >= 9 && bytes[i + 16] === 1) return v.getUint32(i + 8) * 0.0254;
       if (tipo === 'IDAT' || tipo === 'IEND') return null;
       i += 12 + tam;
+    }
+    return null;
+  }
+
+  // JPG: procura o bloco APP0 "JFIF" antes da imagem; unidade 1 = pontos por polegada, 2 = por cm
+  function lerDPIJpg(bytes, v) {
+    let i = 2;
+    while (i + 4 <= bytes.length && bytes[i] === 0xff) {
+      const marca = bytes[i + 1], tam = v.getUint16(i + 2);
+      if (marca === 0xda || marca === 0xd9) return null; // começou a imagem: sem DPI gravado
+      if (marca === 0xe0 && tam >= 14 && String.fromCharCode(bytes[i + 4], bytes[i + 5], bytes[i + 6], bytes[i + 7]) === 'JFIF') {
+        const unidade = bytes[i + 11], x = v.getUint16(i + 12);
+        if (!x) return null;
+        if (unidade === 1) return x;
+        if (unidade === 2) return x * 2.54;
+        return null;
+      }
+      i += 2 + tam;
     }
     return null;
   }

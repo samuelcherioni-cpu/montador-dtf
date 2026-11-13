@@ -21,7 +21,7 @@
       <div class="logos"><img src="logo-vantti.png" alt="Vantti"><img src="logo-zavari.png" alt="Zavari"></div>
       <div class="marca"><b class="grad-text">Fila DTF</b><span>Zavari · Vantti · filme de 57 cm · PNG 300 DPI</span></div>
       <div class="acoes">
-        <button class="btn btn-ghost" id="btnAdicionar" type="button" title="Adicionar artes (PNG)">
+        <button class="btn btn-ghost" id="btnAdicionar" type="button" title="Adicionar artes (PNG ou JPG)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg><span>Adicionar artes</span>
         </button>
         <button class="btn btn-ghost" id="btnOrganizar" type="button" title="Refazer o encaixe de todas as artes">
@@ -70,7 +70,7 @@
         </section>
 
         <div id="lista"></div>
-        <p class="rodape">Os arquivos ficam só neste aparelho; nada é enviado.</p>
+        <p class="rodape">PNG ou JPG. As artes ficam neste aparelho até o envio para a Zavari.</p>
       </aside>
 
       <section class="palco glass">
@@ -98,8 +98,8 @@
     </main>
   </div>
 
-  <input type="file" id="arquivos" accept="image/png" multiple hidden>
-  <div class="soltar" id="soltar" hidden>Solte os PNGs</div>
+  <input type="file" id="arquivos" accept="image/png,image/jpeg,.png,.jpg,.jpeg" multiple hidden>
+  <div class="soltar" id="soltar" hidden>Solte as artes (PNG ou JPG)</div>
   <div class="aviso" id="aviso" role="status" hidden></div>
 
   <div class="modal" id="modalBaixar" hidden>

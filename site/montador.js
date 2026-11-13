@@ -311,13 +311,15 @@
 
   async function adicionarArquivos(lista) {
     const arquivos = [...lista];
-    const png = arquivos.filter((f) => f.type === 'image/png' || /\.png$/i.test(f.name));
-    if (png.length < arquivos.length) avisar('Só arquivos PNG. Os outros foram ignorados.', true);
+    // PNG (com fundo transparente) ou JPG/JPEG (sem transparência: sai com o fundo do arquivo)
+    const ehJpg = (f) => f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name);
+    const png = arquivos.filter((f) => f.type === 'image/png' || /\.png$/i.test(f.name) || ehJpg(f));
+    if (png.length < arquivos.length) avisar('Só arquivos PNG, JPG ou JPEG. Os outros foram ignorados.', true);
     const novas = [];
     for (const f of png) {
       try {
         const bytes = new Uint8Array(await f.arrayBuffer());
-        const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        const bitmap = await createImageBitmap(new Blob([bytes], { type: ehJpg(f) ? 'image/jpeg' : 'image/png' }), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
         const dpiArq = Png.lerDPI(bytes);
         const dpiUso = dpiArq && dpiArq >= 50 && dpiArq <= 2400 ? dpiArq : DPI;
         let w = (bitmap.width / dpiUso) * 25.4, h = (bitmap.height / dpiUso) * 25.4;
@@ -328,10 +330,10 @@
         const nativo = !reduzida && Math.abs(dpiUso - DPI) < 1;
         const mini = await previa(bitmap);
         const arte = {
-          id: 'a' + ++seq, nome: f.name.replace(/\.png$/i, ''), arquivo: f, url: URL.createObjectURL(f),
+          id: 'a' + ++seq, nome: f.name.replace(/\.(png|jpe?g)$/i, ''), arquivo: f, url: URL.createObjectURL(f),
           previa: mini.url, mini: mini.bitmap, giro: 'auto',
           pxW: bitmap.width, pxH: bitmap.height, w: arred(w), h: arred(h), rot: 0, travado: true,
-          transparente: temTransparencia(bitmap), qtd: 1, nativo, dura: bordaDura(bitmap),
+          transparente: temTransparencia(bitmap), qtd: 1, nativo, dura: !ehJpg(f) && bordaDura(bitmap), // JPG não tem borda transparente: ao mudar o tamanho, suaviza
         };
         // A imagem cheia sai da memória: uma arte de 35 x 37 cm aberta ocupa uns 60 MB, e 70 delas
         // travariam o navegador. Ela é aberta de novo só na hora de gerar o PNG, uma por vez.
@@ -475,7 +477,7 @@
     if (!est.artes.length) {
       el.innerHTML = `<div class="vazio" id="vazio" role="button" tabindex="0">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-        <b>Adicione PNGs com fundo transparente</b><span>Toque aqui ou solte os arquivos na tela</span></div>`;
+        <b>Adicione PNG com fundo transparente ou JPG</b><span>Toque aqui ou solte os arquivos na tela</span></div>`;
       return;
     }
     const selArtes = new Set([...est.sel].map((id) => (est.pecas.find((p) => p.id === id) || {}).arte));
