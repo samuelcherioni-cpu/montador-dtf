@@ -948,9 +948,25 @@
   // O cliente não baixa o PNG: ele é gerado aqui, sobe para o armazenamento da Zavari e o cliente avisa
   // pelo WhatsApp com o link do pedido (que só abre com o PIN de administrador).
   const WHATSAPP = [
-    { rotulo: 'Samuel · (16) 99394-6400', numero: '5516993946400' },
-    { rotulo: 'Daniel · (16) 99394-6404', numero: '5516993946404' },
+    { rotulo: 'Samuel · (16) 99394-6404', numero: '5516993946404' },
+    { rotulo: 'Daniel · (16) 99394-6400', numero: '5516993946400' },
   ];
+  // Retirada: no mínimo 2 h depois do envio (o tempo de imprimir). A sugestão é arredondada para a meia hora seguinte.
+  const ANTECEDENCIA_MS = 2 * 60 * 60 * 1000;
+  const dois = (n) => String(n).padStart(2, '0');
+  const isoDia = (d) => `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+  const isoHora = (d) => `${dois(d.getHours())}:${dois(d.getMinutes())}`;
+  function primeiraRetirada() {
+    const d = new Date(Date.now() + ANTECEDENCIA_MS);
+    if (d.getSeconds() || d.getMilliseconds() || d.getMinutes() % 30) d.setMinutes(d.getMinutes() <= 30 ? 30 : 60, 0, 0);
+    return d;
+  }
+  const retiradaEscolhida = () => ($('envDia').value && $('envHora').value ? new Date(`${$('envDia').value}T${$('envHora').value}`) : null);
+  function ajustarRetirada() {
+    const min = primeiraRetirada(), atual = retiradaEscolhida();
+    $('envDia').min = isoDia(new Date());
+    if (!atual || atual < new Date(Date.now() + ANTECEDENCIA_MS)) { $('envDia').value = isoDia(min); $('envHora').value = isoHora(min); }
+  }
   const ERROS_ENVIO = {
     SEM_CONEXAO: 'Sem conexão com a internet. Confira e tente de novo.',
     NAO_CONFIGURADO: 'Envio indisponível no momento. Avise a Zavari pelo WhatsApp.',
@@ -967,8 +983,7 @@
     const L = comprimento();
     $('enviarResumo').textContent = `57 cm × ${metrosTxt(L)} · ${est.pecas.length} ${est.pecas.length === 1 ? 'arte' : 'artes'} · PNG 300 DPI`;
     $('formEnviar').hidden = false; $('envAndamento').hidden = true; $('envPronto').hidden = true;
-    // o dia da retirada começa em hoje; o horário fica para o cliente escolher
-    if (!$('envDia').value) { const d = new Date(); $('envDia').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+    ajustarRetirada(); // começa no primeiro horário possível (2 h depois de agora); o cliente pode escolher depois disso
     $('modalEnviar').hidden = false;
     $('envNome').focus();
   });
@@ -978,6 +993,13 @@
     if (enviando) return;
     const nome = $('envNome').value.trim(), telefone = $('envTelefone').value.trim();
     if (telefone.replace(/\D/g, '').length < 10) { $('envTelefone').focus(); avisar('Telefone com DDD, ex.: (16) 90000-0000.', true); return; }
+    const escolhida = retiradaEscolhida();
+    if (!escolhida || escolhida < new Date(Date.now() + ANTECEDENCIA_MS)) {
+      ajustarRetirada();
+      $('envHora').focus();
+      avisar(`Retirada no mínimo 2 h depois do envio: a partir de ${dataBR($('envDia').value)} às ${$('envHora').value}.`, true);
+      return;
+    }
     const retirada = `${dataBR($('envDia').value)} às ${$('envHora').value}`;
     const zap = WHATSAPP[Number((document.querySelector('input[name="zap"]:checked') || {}).value || 0)];
     enviando = true;

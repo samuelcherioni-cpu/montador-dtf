@@ -240,6 +240,7 @@ button:disabled { cursor: default; opacity: 0.5; }
 .bloco-retirada > .rotulo-campo { color: #8fdcf0; font-size: 0.82rem; font-weight: 700; margin-bottom: 10px; }
 .bloco-retirada label { color: #cfeffa; }
 .bloco-retirada .input { border-color: rgba(25, 182, 210, 0.45); }
+.nota-retirada { display: block; margin-top: 8px; font-size: 0.74rem; color: #8fdcf0; opacity: 0.85; }
 .opcoes-zap { display: flex; flex-direction: column; gap: 6px; }
 .opcao-zap { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--field); border: 1px solid var(--line-strong); cursor: pointer; font-variant-numeric: tabular-nums; }
 .opcao-zap input { accent-color: var(--cc); }
