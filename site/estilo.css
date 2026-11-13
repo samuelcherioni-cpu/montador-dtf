@@ -235,6 +235,11 @@ button:disabled { cursor: default; opacity: 0.5; }
 .form-envio { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
 .campos-lado { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .rotulo-campo { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 6px; }
+/* Retirada em destaque: quadro azul, para o cliente não deixar de conferir dia e horário */
+.bloco-retirada { padding: 12px 14px 14px; border-radius: 14px; background: linear-gradient(135deg, rgba(10, 132, 214, 0.22), rgba(25, 182, 210, 0.12)); border: 1px solid rgba(25, 182, 210, 0.45); }
+.bloco-retirada > .rotulo-campo { color: #8fdcf0; font-size: 0.82rem; font-weight: 700; margin-bottom: 10px; }
+.bloco-retirada label { color: #cfeffa; }
+.bloco-retirada .input { border-color: rgba(25, 182, 210, 0.45); }
 .opcoes-zap { display: flex; flex-direction: column; gap: 6px; }
 .opcao-zap { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--field); border: 1px solid var(--line-strong); cursor: pointer; font-variant-numeric: tabular-nums; }
 .opcao-zap input { accent-color: var(--cc); }
