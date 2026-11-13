@@ -2,7 +2,7 @@
 # depois dos testes e da checagem de isolamento. Confere que ficou no ar e que o link de pedido não
 # baixa sem PIN. Só então troca o endereço antigo do GitHub Pages por um redirecionamento.
 # Precisa de dois segredos do repositório (nunca no código): CLOUDFLARE_API_TOKEN (só Pages) e
-# CLOUDFLARE_ACCOUNT_ID. Os segredos da Fila (PIN_ADMIN, SEGREDO_LINK) ficam no projeto da Cloudflare.
+# CLOUDFLARE_ACCOUNT_ID. Os segredos da Fila (PIN_ADMIN, SEGREDO_LINK, GOOGLE_*) ficam no projeto da Cloudflare.
 name: Publicar Fila DTF
 
 on:
@@ -72,7 +72,11 @@ jobs:
             openssl rand -hex 32 | wrangler pages secret put SEGREDO_LINK --project-name "$PROJETO" >/dev/null
             echo "SEGREDO_LINK criado."
           fi
-          wrangler pages secret list --project-name "$PROJETO" 2>/dev/null | grep -q "PIN_ADMIN" || echo "::warning::Falta o segredo PIN_ADMIN no projeto $PROJETO: o administrador ainda não consegue entrar."
+          lista=$(wrangler pages secret list --project-name "$PROJETO" 2>/dev/null || true)
+          echo "$lista" | grep -q "PIN_ADMIN" || echo "::warning::Falta o segredo PIN_ADMIN no projeto $PROJETO: o administrador ainda não consegue entrar."
+          for s in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET GOOGLE_REFRESH_TOKEN; do
+            echo "$lista" | grep -q "$s" || echo "::warning::Falta o segredo $s no projeto $PROJETO: os pedidos ainda não chegam no Google Drive."
+          done
       - name: Versão nos arquivos (o navegador busca o código novo em vez de usar o guardado)
         run: |
           v=${GITHUB_SHA::7}

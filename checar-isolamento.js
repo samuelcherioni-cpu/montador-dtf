@@ -1,7 +1,7 @@
 // node checar-isolamento.js — confere que nada da Fila DTF aponta para outros sistemas internos (hub,
 // planilhas, domínios) e que não há chave nem segredo no que vai ao ar. Qualquer ocorrência barra a publicação.
 //   site/       páginas baixadas pelo navegador do cliente
-//   functions/  servidor da Fila DTF (pedidos e PIN de admin): só pode falar com o próprio armazenamento
+//   functions/  servidor da Fila DTF (pedidos e PIN de admin): só o _drive.js chama fora, e só a API do Google Drive
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -42,6 +42,14 @@ function varrer(dir, regras, ehSite) {
         linha = linha.replace(/'\/api\/(admin|pedido|pedidos)'/g, "'ROTA_DA_FILA'").replace(/\bfetch\s*\(ROTAS\[/g, 'CHAMADA_DA_FILA(').replace(/new XMLHttpRequest\(\)/g, 'ENVIO_DA_FILA()');
         if (/XMLHttpRequest/.test(original) && /^\s*\/\//.test(original)) linha = linha.replace(/XMLHttpRequest/g, 'XHR');
       }
+      // _drive.js é o único arquivo do servidor que chama fora, e só a API do Google Drive
+      if (!ehSite && nome === '_drive.js') {
+        for (const url of linha.match(/https?:\/\/[^\s"'`)<>]+/gi) || []) {
+          if (!/^https:\/\/(www|oauth2)\.googleapis\.com(\/|$)/.test(url)) { problemas++; console.log(`ENDEREÇO EXTERNO ${url} em ${onde}`); }
+        }
+        linha = linha.replace(/\bfetch\s*\(/g, 'CHAMADA_AO_DRIVE(');
+      }
+      if (!ehSite && nome !== '_drive.js' && /https?:\/\//.test(linha)) { problemas++; console.log(`ENDEREÇO EXTERNO em ${onde}`); }
       for (const re of regras) if (re.test(linha)) { problemas++; console.log(`PROIBIDO ${re} em ${onde}`); }
       if (ehSite) for (const url of linha.match(/https?:\/\/[^\s"'`)<>]+/gi) || []) {
         if (!PERMITIDOS.some((p) => url.startsWith(p))) { problemas++; console.log(`ENDEREÇO EXTERNO ${url} em ${onde}`); }

@@ -1,5 +1,5 @@
 // Funções comuns do servidor da Fila DTF (Cloudflare Pages Functions).
-// Nada aqui conversa com outros sistemas: só com o armazenamento de pedidos (R2, ligação PEDIDOS).
+// Nada aqui conversa com outros sistemas. Os pedidos ficam no Google Drive (ver _drive.js).
 // Segredos (cadastrados no projeto da Cloudflare, nunca no código):
 //   PIN_ADMIN       — PIN de admin (ou PIN_ADMIN_HASH, com o SHA-256 dele)
 //   SEGREDO_LINK    — texto longo aleatório, assina a sessão de admin
@@ -64,7 +64,6 @@ export function novoCodigo() {
   const b = crypto.getRandomValues(new Uint8Array(6));
   return [...b].map((x) => letras[x % letras.length]).join('');
 }
-export const chaveDoPedido = (codigo) => `pedidos/${codigo}.png`;
 export const codigoValido = (c) => /^[A-HJ-NP-Z2-9]{6}$/.test(c || '');
 
 // Texto curto e limpo vindo do cliente (vai para o nome do arquivo e para a lista de pedidos)
