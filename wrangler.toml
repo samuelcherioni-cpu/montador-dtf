@@ -1,0 +1,13 @@
+# Projeto da Fila DTF na Cloudflare Pages (separado do hub: outro projeto, outros segredos).
+name = "fila-dtf"
+pages_build_output_dir = "site"
+compatibility_date = "2026-10-19"
+
+# Armazenamento dos pedidos (PNG dos clientes). Apaga sozinho depois de 30 dias (regra no próprio bucket).
+[[r2_buckets]]
+binding = "PEDIDOS"
+bucket_name = "fila-dtf-pedidos"
+
+# Segredos (cadastrados no painel da Cloudflare, nunca aqui):
+#   PIN_ADMIN    — PIN de 4 dígitos do administrador
+#   SEGREDO_LINK — texto longo aleatório que assina a sessão de admin

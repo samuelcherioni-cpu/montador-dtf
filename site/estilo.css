@@ -230,3 +230,28 @@ button:disabled { cursor: default; opacity: 0.5; }
   .mini { width: 60px; height: 60px; }
   .campos { grid-template-columns: 1fr; }
 }
+
+/* Envio do pedido */
+.form-envio { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.campos-lado { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rotulo-campo { display: block; font-size: 0.72rem; color: var(--muted); margin-bottom: 6px; }
+.opcoes-zap { display: flex; flex-direction: column; gap: 6px; }
+.opcao-zap { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--field); border: 1px solid var(--line-strong); cursor: pointer; font-variant-numeric: tabular-nums; }
+.opcao-zap input { accent-color: var(--cc); }
+.acoes-form { display: flex; justify-content: flex-end; }
+#envPronto .modal-info { margin-top: 14px; color: var(--text); }
+
+/* Acesso do administrador: cadeado discreto no canto inferior direito */
+.admin-canto { position: fixed; right: 10px; bottom: 10px; z-index: 30; width: 30px; height: 30px; border-radius: 10px; display: grid; place-items: center;
+  border: 1px solid var(--line); background: rgba(255, 255, 255, 0.03); color: var(--faint); opacity: 0.35; transition: opacity .2s; }
+.admin-canto:hover, .admin-canto:focus-visible { opacity: 1; }
+.admin-canto svg { width: 15px; height: 15px; }
+body.modo-admin .admin-canto { opacity: 0.8; color: var(--cc); border-color: rgba(47, 211, 160, 0.45); }
+.form-pin { display: flex; gap: 8px; margin-top: 16px; }
+.form-pin .input { flex: 1; letter-spacing: 0.4em; text-align: center; }
+.titulo-pedidos { display: block; margin: 16px 0 8px; font-size: 0.9rem; }
+.lista-pedidos { list-style: none; display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow: auto; }
+.lista-pedidos li { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: var(--field); border: 1px solid var(--line); }
+.lista-pedidos li > div { flex: 1; min-width: 0; }
+.lista-pedidos .btn { height: 32px; padding: 0 12px; font-size: 0.78rem; }
+@media (max-width: 560px) { .campos-lado { grid-template-columns: 1fr; } .admin-canto { bottom: 6px; right: 6px; } }

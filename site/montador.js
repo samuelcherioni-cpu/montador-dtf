@@ -13,7 +13,7 @@
   const MAX_METROS = 20;
 
   const $ = (id) => document.getElementById(id);
-  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 1, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '', semente: 0, anteriores: [] };
+  const est = { artes: [], pecas: [], sel: new Set(), zoom: null, margem: 1, espaco: 5, girar: true, modo: 'auto', metros: 1, ident: '', semente: 0, anteriores: [], admin: false };
   let seq = 0;
 
   const fmt = (n, c = 1) => n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c });
@@ -640,6 +640,7 @@
     el.textContent = txt;
     el.className = 'estado num ' + cls;
     $('btnBaixar').disabled = !pode;
+    $('btnEnviar').disabled = !pode;
     $('btnOutra').disabled = !n;
   }
   function areaPecas() { return est.pecas.reduce((s, p) => s + perfis(arteDe(p.arte)).area, 0); }
@@ -692,7 +693,10 @@
     if (p) mudarDeLugar(p);
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !$('modalBaixar').hidden) fecharModal();
+    if (e.key !== 'Escape') return;
+    if (!$('modalBaixar').hidden) fecharModal();
+    if (!$('modalEnviar').hidden) fecharEnvio();
+    if (!$('modalAdmin').hidden) $('modalAdmin').hidden = true;
   });
 
   // ---------- zoom ----------
@@ -800,8 +804,111 @@
     return `fila-dtf-57cm-${fmt(L / 1000, 2)}m${id ? '-' + id : ''}.png`;
   }
 
+  // Gera o PNG da fila (300 DPI, borda dura, beirada pintada). aoProgresso(f) recebe de 0 a 1.
+  async function gerarArquivo(aoProgresso) {
+    const L = comprimento();
+    const altura = Math.round(L * PX_MM);
+    if (document.fonts && est.ident) await document.fonts.load(`700 40px Inter`);
+    const pecas = est.pecas.map((p) => {
+      const a = arteDe(p.arte), px = pxSaida(a);
+      const umPraUm = px.w === a.pxW && px.h === a.pxH;
+      // posição em pixel inteiro: sem isso o navegador recalcula a borda e ela sai borrada
+      return { a, rot: p.rot, x: Math.round(p.x * PX_MM), y: Math.round(p.y * PX_MM),
+        w: deitada(p.rot) ? px.h : px.w, h: deitada(p.rot) ? px.w : px.h,
+        // ampliada ou reduzida: suave e depois o limiar deixa o contorno liso e duro (como vetor);
+        // no tamanho original, cópia exata dos pixels
+        suave: !umPraUm };
+    });
+    // Cada imagem é aberta quando a primeira faixa que a usa chega e fechada depois da última:
+    // assim só ficam abertas as artes da região do filme que está sendo gerada.
+    const ultimaLinha = new Map();
+    for (const q of pecas) ultimaLinha.set(q.a.id, Math.max(ultimaLinha.get(q.a.id) || 0, q.y + q.h));
+    const abertas = new Map();
+    const abrir = async (a) => {
+      if (!abertas.has(a.id)) abertas.set(a.id, await createImageBitmap(a.arquivo, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }));
+      return abertas.get(a.id);
+    };
+    const cv = document.createElement('canvas');
+    cv.width = FILME_PX;
+    const ctx = cv.getContext('2d'); // na placa de vídeo: desenhar as artes grandes fica rápido; lê só uma vez por faixa
+    const partes = await Png.gerarPNG({
+      largura: FILME_PX, altura, dpi: DPI, alturaFaixa: 512,
+      faixa: async (y0, n) => {
+        // A faixa é desenhada com BEIRADA linhas a mais em cima e embaixo: a pintura da beirada precisa
+        // enxergar os vizinhos da faixa de cima e da de baixo (senão ficaria uma emenda entre faixas).
+        const y0real = y0, nreal = n;
+        y0 = Math.max(0, y0real - BEIRADA);
+        n = Math.min(altura, y0real + nreal + BEIRADA) - y0;
+        // limpa a faixa anterior inteira ANTES de deslocar (com o deslocamento, a limpeza caía no lugar errado
+        // e sobravam pedaços da faixa anterior nas partes transparentes)
+        if (cv.height !== n) cv.height = n;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.clearRect(0, 0, FILME_PX, n);
+        ctx.setTransform(1, 0, 0, 1, 0, -y0);
+        ctx.imageSmoothingQuality = 'high';
+        for (const q of pecas) {
+          ctx.imageSmoothingEnabled = q.suave;
+          if (q.y > y0 + n || q.y + q.h < y0) continue;
+          // desenha só a fatia da arte que cai nesta faixa (desenhar a imagem inteira a cada faixa é lento)
+          const bmp = await abrir(q.a);
+          const t0 = Math.max(0, y0 - q.y), t1 = Math.min(q.h, y0 + n - q.y); // trecho da altura da peça, em px
+          if (t1 <= t0) continue;
+          ctx.save();
+          if (q.rot === 90) {
+            // girada 90° (horário): a largura da imagem original corre para baixo no filme
+            const s0 = (t0 / q.h) * bmp.width, s1 = (t1 / q.h) * bmp.width;
+            ctx.translate(q.x + q.w, q.y);
+            ctx.rotate(Math.PI / 2);
+            ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, t0, 0, t1 - t0, q.w);
+          } else if (q.rot === 270) {
+            // girada 270° (anti-horário): a largura da imagem corre para cima no filme
+            const s0 = ((q.h - t1) / q.h) * bmp.width, s1 = ((q.h - t0) / q.h) * bmp.width;
+            ctx.translate(q.x, q.y + q.h);
+            ctx.rotate(-Math.PI / 2);
+            ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, q.h - t1, 0, t1 - t0, q.w);
+          } else if (q.rot === 180) {
+            // de cabeça para baixo: as linhas de cima do filme vêm do fim da imagem
+            const s0 = ((q.h - t1) / q.h) * bmp.height, s1 = ((q.h - t0) / q.h) * bmp.height;
+            ctx.translate(q.x + q.w, q.y + q.h);
+            ctx.rotate(Math.PI);
+            ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, 0, q.h - t1, q.w, t1 - t0);
+          } else {
+            const s0 = (t0 / q.h) * bmp.height, s1 = (t1 / q.h) * bmp.height;
+            ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, q.x, q.y + t0, q.w, t1 - t0);
+          }
+          ctx.restore();
+        }
+        if (est.ident) {
+          const yT = (L - est.margem - IDENT_MM) * PX_MM;
+          if (yT < y0 + n && yT + IDENT_MM * PX_MM > y0) {
+            ctx.font = `700 ${Math.round(IDENT_MM * 0.75 * PX_MM)}px Inter, sans-serif`;
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(est.ident, est.margem * PX_MM, yT + (IDENT_MM * PX_MM) / 2);
+          }
+        }
+        const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
+        for (const [id, b] of abertas) if (ultimaLinha.get(id) <= y0 + n) { if (b.close) b.close(); abertas.delete(id); }
+        pintarBeirada(dados, FILME_PX, n, BEIRADA);
+        // Limiar na transparência (como máscara de camada + limiar no Photoshop): todo pixel fica cheio
+        // ou vazio. Borda meio transparente imprime branca no DTF e atrapalha o halftone.
+        for (let i = 3; i < dados.length; i += 4) {
+          if (dados[i] >= LIMIAR) dados[i] = 255;
+          else if (dados[i]) { dados[i] = 0; dados[i - 1] = 0; dados[i - 2] = 0; dados[i - 3] = 0; }
+        }
+        await ceder(); // deixa a tela respirar
+        const ini = (y0real - y0) * FILME_PX * 4;
+        return dados.subarray(ini, ini + nreal * FILME_PX * 4);
+      },
+      aoProgresso,
+    });
+    const blob = new Blob(partes, { type: 'image/png' });
+    return { blob, L };
+  }
+
   $('btnBaixar').addEventListener('click', async () => {
-    if (gerando || $('btnBaixar').disabled) return;
+    // baixar o PNG é só do administrador (o cliente envia para a Zavari)
+    if (gerando || $('btnBaixar').disabled || !est.admin) return;
     const L = comprimento();
     const altura = Math.round(L * PX_MM);
     gerando = true;
@@ -813,105 +920,11 @@
     $('baixarBarra').style.width = '0%';
     $('baixarInfo').textContent = '0%';
     try {
-      if (document.fonts && est.ident) await document.fonts.load(`700 40px Inter`);
-      const pecas = est.pecas.map((p) => {
-        const a = arteDe(p.arte), px = pxSaida(a);
-        const umPraUm = px.w === a.pxW && px.h === a.pxH;
-        // posição em pixel inteiro: sem isso o navegador recalcula a borda e ela sai borrada
-        return { a, rot: p.rot, x: Math.round(p.x * PX_MM), y: Math.round(p.y * PX_MM),
-          w: deitada(p.rot) ? px.h : px.w, h: deitada(p.rot) ? px.w : px.h,
-          // ampliada ou reduzida: suave e depois o limiar deixa o contorno liso e duro (como vetor);
-          // no tamanho original, cópia exata dos pixels
-          suave: !umPraUm };
+      const { blob } = await gerarArquivo((f) => {
+        const pct = Math.round(f * 100);
+        $('baixarBarra').style.width = pct + '%';
+        $('baixarInfo').textContent = pct < 100 ? pct + '%' : 'Finalizando…';
       });
-      // Cada imagem é aberta quando a primeira faixa que a usa chega e fechada depois da última:
-      // assim só ficam abertas as artes da região do filme que está sendo gerada.
-      const ultimaLinha = new Map();
-      for (const q of pecas) ultimaLinha.set(q.a.id, Math.max(ultimaLinha.get(q.a.id) || 0, q.y + q.h));
-      const abertas = new Map();
-      const abrir = async (a) => {
-        if (!abertas.has(a.id)) abertas.set(a.id, await createImageBitmap(a.arquivo, { premultiplyAlpha: 'none', colorSpaceConversion: 'none' }));
-        return abertas.get(a.id);
-      };
-      const cv = document.createElement('canvas');
-      cv.width = FILME_PX;
-      const ctx = cv.getContext('2d'); // na placa de vídeo: desenhar as artes grandes fica rápido; lê só uma vez por faixa
-      const partes = await Png.gerarPNG({
-        largura: FILME_PX, altura, dpi: DPI, alturaFaixa: 512,
-        faixa: async (y0, n) => {
-          // A faixa é desenhada com BEIRADA linhas a mais em cima e embaixo: a pintura da beirada precisa
-          // enxergar os vizinhos da faixa de cima e da de baixo (senão ficaria uma emenda entre faixas).
-          const y0real = y0, nreal = n;
-          y0 = Math.max(0, y0real - BEIRADA);
-          n = Math.min(altura, y0real + nreal + BEIRADA) - y0;
-          // limpa a faixa anterior inteira ANTES de deslocar (com o deslocamento, a limpeza caía no lugar errado
-          // e sobravam pedaços da faixa anterior nas partes transparentes)
-          if (cv.height !== n) cv.height = n;
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          ctx.clearRect(0, 0, FILME_PX, n);
-          ctx.setTransform(1, 0, 0, 1, 0, -y0);
-          ctx.imageSmoothingQuality = 'high';
-          for (const q of pecas) {
-            ctx.imageSmoothingEnabled = q.suave;
-            if (q.y > y0 + n || q.y + q.h < y0) continue;
-            // desenha só a fatia da arte que cai nesta faixa (desenhar a imagem inteira a cada faixa é lento)
-            const bmp = await abrir(q.a);
-            const t0 = Math.max(0, y0 - q.y), t1 = Math.min(q.h, y0 + n - q.y); // trecho da altura da peça, em px
-            if (t1 <= t0) continue;
-            ctx.save();
-            if (q.rot === 90) {
-              // girada 90° (horário): a largura da imagem original corre para baixo no filme
-              const s0 = (t0 / q.h) * bmp.width, s1 = (t1 / q.h) * bmp.width;
-              ctx.translate(q.x + q.w, q.y);
-              ctx.rotate(Math.PI / 2);
-              ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, t0, 0, t1 - t0, q.w);
-            } else if (q.rot === 270) {
-              // girada 270° (anti-horário): a largura da imagem corre para cima no filme
-              const s0 = ((q.h - t1) / q.h) * bmp.width, s1 = ((q.h - t0) / q.h) * bmp.width;
-              ctx.translate(q.x, q.y + q.h);
-              ctx.rotate(-Math.PI / 2);
-              ctx.drawImage(bmp, s0, 0, s1 - s0, bmp.height, q.h - t1, 0, t1 - t0, q.w);
-            } else if (q.rot === 180) {
-              // de cabeça para baixo: as linhas de cima do filme vêm do fim da imagem
-              const s0 = ((q.h - t1) / q.h) * bmp.height, s1 = ((q.h - t0) / q.h) * bmp.height;
-              ctx.translate(q.x + q.w, q.y + q.h);
-              ctx.rotate(Math.PI);
-              ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, 0, q.h - t1, q.w, t1 - t0);
-            } else {
-              const s0 = (t0 / q.h) * bmp.height, s1 = (t1 / q.h) * bmp.height;
-              ctx.drawImage(bmp, 0, s0, bmp.width, s1 - s0, q.x, q.y + t0, q.w, t1 - t0);
-            }
-            ctx.restore();
-          }
-          if (est.ident) {
-            const yT = (L - est.margem - IDENT_MM) * PX_MM;
-            if (yT < y0 + n && yT + IDENT_MM * PX_MM > y0) {
-              ctx.font = `700 ${Math.round(IDENT_MM * 0.75 * PX_MM)}px Inter, sans-serif`;
-              ctx.textBaseline = 'middle';
-              ctx.fillStyle = '#ffffff';
-              ctx.fillText(est.ident, est.margem * PX_MM, yT + (IDENT_MM * PX_MM) / 2);
-            }
-          }
-          const dados = ctx.getImageData(0, 0, FILME_PX, n).data;
-          for (const [id, b] of abertas) if (ultimaLinha.get(id) <= y0 + n) { if (b.close) b.close(); abertas.delete(id); }
-          pintarBeirada(dados, FILME_PX, n, BEIRADA);
-          // Limiar na transparência (como máscara de camada + limiar no Photoshop): todo pixel fica cheio
-          // ou vazio. Borda meio transparente imprime branca no DTF e atrapalha o halftone.
-          for (let i = 3; i < dados.length; i += 4) {
-            if (dados[i] >= LIMIAR) dados[i] = 255;
-            else if (dados[i]) { dados[i] = 0; dados[i - 1] = 0; dados[i - 2] = 0; dados[i - 3] = 0; }
-          }
-          await ceder(); // deixa a tela respirar
-          const ini = (y0real - y0) * FILME_PX * 4;
-          return dados.subarray(ini, ini + nreal * FILME_PX * 4);
-        },
-        aoProgresso: (f) => {
-          const pct = Math.round(f * 100);
-          $('baixarBarra').style.width = pct + '%';
-          $('baixarInfo').textContent = pct < 100 ? pct + '%' : 'Finalizando…';
-        },
-      });
-      const blob = new Blob(partes, { type: 'image/png' });
       urlArquivo = URL.createObjectURL(blob);
       const a = $('baixarSalvar');
       a.href = urlArquivo;
@@ -926,6 +939,130 @@
     } finally {
       gerando = false;
       $('modalBaixar').querySelector('[data-fechar]').disabled = false;
+    }
+  });
+
+  // ---------- envio do pedido (cliente) ----------
+  // O cliente não baixa o PNG: ele é gerado aqui, sobe para o armazenamento da Zavari e o cliente avisa
+  // pelo WhatsApp com o link do pedido (que só abre com o PIN de administrador).
+  const WHATSAPP = [
+    { rotulo: '(16) 99394-6404', numero: '5516993946404' },
+    { rotulo: '(16) 99394-6400', numero: '5516993946400' },
+  ];
+  const ERROS_ENVIO = {
+    SEM_CONEXAO: 'Sem conexão com a internet. Confira e tente de novo.',
+    NAO_CONFIGURADO: 'Envio indisponível no momento. Avise a Zavari pelo WhatsApp.',
+    GRANDE_DEMAIS: 'Arquivo grande demais para um envio só. Divida a fila em duas.',
+    MUITOS_ENVIOS: 'Muitos envios seguidos. Aguarde alguns minutos e tente de novo.',
+    DADOS: 'Confira nome, telefone, dia e horário.',
+  };
+  let enviando = false;
+  $('opcoesZap').innerHTML = WHATSAPP.map((z, i) => `<label class="opcao-zap"><input type="radio" name="zap" value="${i}"${i ? '' : ' checked'}> ${z.rotulo}</label>`).join('');
+  function fecharEnvio() { if (!enviando) $('modalEnviar').hidden = true; }
+  $('modalEnviar').addEventListener('click', (e) => { if (e.target === $('modalEnviar') || e.target.closest('[data-fechar]')) fecharEnvio(); });
+  $('btnEnviar').addEventListener('click', () => {
+    if ($('btnEnviar').disabled) return;
+    const L = comprimento();
+    $('enviarResumo').textContent = `57 cm × ${metrosTxt(L)} · ${est.pecas.length} ${est.pecas.length === 1 ? 'arte' : 'artes'} · PNG 300 DPI`;
+    $('formEnviar').hidden = false; $('envAndamento').hidden = true; $('envPronto').hidden = true;
+    if (!$('envDia').value) { const d = new Date(); $('envDia').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+    $('modalEnviar').hidden = false;
+    $('envNome').focus();
+  });
+  const dataBR = (iso) => { const [a, m, d] = iso.split('-'); return `${d}/${m}/${a}`; };
+  $('formEnviar').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (enviando) return;
+    const nome = $('envNome').value.trim(), telefone = $('envTelefone').value.trim();
+    if (telefone.replace(/\D/g, '').length < 10) { $('envTelefone').focus(); avisar('Telefone com DDD, ex.: (16) 90000-0000.', true); return; }
+    const retirada = `${dataBR($('envDia').value)} às ${$('envHora').value}`;
+    const zap = WHATSAPP[Number((document.querySelector('input[name="zap"]:checked') || {}).value || 0)];
+    enviando = true;
+    $('formEnviar').hidden = true; $('envAndamento').hidden = false;
+    $('modalEnviar').querySelector('[data-fechar]').disabled = true;
+    const passo = (txt, f) => { $('envBarra').style.width = Math.round(f * 100) + '%'; $('envInfo').textContent = txt; };
+    try {
+      passo('Gerando o arquivo… 0%', 0);
+      const { blob, L } = await gerarArquivo((f) => passo(f < 1 ? `Gerando o arquivo… ${Math.round(f * 100)}%` : 'Gerando o arquivo… finalizando', f * 0.5));
+      const metros = fmt(L / 1000, 2);
+      passo('Enviando… 0%', 0.5);
+      const r = await Servidor.enviarArquivo(blob, { nome, telefone, retirada, metros, artes: String(est.pecas.length) },
+        (f) => passo(`Enviando… ${Math.round(f * 100)}% de ${fmt(blob.size / 1048576, 1)} MB`, 0.5 + f * 0.5));
+      if (!r.ok) throw new Error(r.erro || 'ERRO');
+      passo('Enviado', 1);
+      const msg = [
+        'Pedido de DTF · Fila DTF',
+        'Código: ' + r.codigo,
+        'Nome: ' + nome,
+        'Telefone: ' + telefone,
+        'Retirada: ' + retirada,
+        `Filme: 57 cm × ${metros} m · ${est.pecas.length} ${est.pecas.length === 1 ? 'arte' : 'artes'}`,
+        'Arquivo: ' + Servidor.linkDoPedido(r.codigo),
+      ].join('\n');
+      $('envZap').href = 'https://wa.me/' + zap.numero + '?text=' + encodeURIComponent(msg);
+      $('envProntoTexto').textContent = `Pedido ${r.codigo} recebido. Toque no botão para avisar pelo WhatsApp ${zap.rotulo}: a mensagem já vai pronta.`;
+      $('envAndamento').hidden = true; $('envPronto').hidden = false;
+      $('tituloEnviar').textContent = 'Pedido enviado';
+    } catch (err) {
+      $('envInfo').textContent = ERROS_ENVIO[err.message] || 'Não foi possível enviar. Tente de novo.';
+      $('formEnviar').hidden = false;
+    } finally {
+      enviando = false;
+      $('modalEnviar').querySelector('[data-fechar]').disabled = false;
+    }
+  });
+
+  // ---------- administrador ----------
+  // Cadeado discreto no canto: com o PIN (conferido no servidor) aparecem "Baixar PNG" e os pedidos.
+  const pedidoNoLink = (new URLSearchParams(location.search).get('pedido') || '').toUpperCase();
+  function modoAdmin(ativo) {
+    est.admin = ativo;
+    document.body.classList.toggle('modo-admin', ativo);
+    $('btnBaixar').hidden = !ativo;
+    $('formAdmin').hidden = ativo;
+    $('adminAberto').hidden = !ativo;
+    $('adminSub').textContent = ativo ? 'Modo administrador ligado' : 'PIN de 4 dígitos';
+    if (ativo) $('adminMsg').textContent = '';
+    if (ativo && !$('modalAdmin').hidden) listarPedidos();
+  }
+  async function listarPedidos() {
+    const r = await Servidor.pedidos();
+    const el = $('listaPedidos');
+    if (!r.ok) { el.innerHTML = '<li class="discreto">Não foi possível carregar os pedidos.</li>'; return; }
+    if (!r.pedidos.length) { el.innerHTML = '<li class="discreto">Nenhum pedido nos últimos 30 dias.</li>'; return; }
+    el.innerHTML = r.pedidos.map((p) => `<li><div><b>${esc(p.nome || '—')}</b> <span class="num">${esc(p.codigo)}</span>
+      <span class="discreto">${esc(p.telefone || '')} · retirada ${esc(p.retirada || '')} · ${esc(p.metros || '?')} m · ${esc(p.artes || '?')} artes</span></div>
+      <a class="btn btn-ghost" href="${Servidor.linkDoPedido(encodeURIComponent(p.codigo))}">Baixar</a></li>`).join('');
+  }
+  $('btnAdmin').addEventListener('click', () => {
+    $('adminMsg').textContent = '';
+    $('modalAdmin').hidden = false;
+    if (est.admin) listarPedidos(); else $('adminPin').focus();
+  });
+  $('modalAdmin').addEventListener('click', (e) => { if (e.target === $('modalAdmin') || e.target.closest('[data-fechar]')) $('modalAdmin').hidden = true; });
+  $('formAdmin').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pin = $('adminPin').value.trim();
+    $('adminPin').value = '';
+    const r = await Servidor.entrar(pin);
+    if (r.ok) {
+      modoAdmin(true);
+      if (pedidoNoLink) { location.href = Servidor.linkDoPedido(encodeURIComponent(pedidoNoLink)); return; }
+      $('adminMsg').textContent = '';
+    } else {
+      $('adminMsg').textContent = r.erro === 'BLOQUEADO' ? 'Muitas tentativas. Aguarde 10 minutos.' : r.status === 0 || r.erro === 'NAO_CONFIGURADO' ? 'Acesso indisponível neste endereço.' : 'PIN incorreto.';
+      $('adminPin').focus();
+    }
+  });
+  $('adminSair').addEventListener('click', async () => { await Servidor.sair(); modoAdmin(false); $('modalAdmin').hidden = true; });
+  // já entrou antes (sessão de 12 h)? e veio de um link de pedido?
+  Servidor.souAdmin().then((sim) => {
+    modoAdmin(sim);
+    if (pedidoNoLink) {
+      if (sim) { location.href = Servidor.linkDoPedido(encodeURIComponent(pedidoNoLink)); return; }
+      $('adminMsg').textContent = `Entre com o PIN para baixar o pedido ${pedidoNoLink}.`;
+      $('modalAdmin').hidden = false;
+      $('adminPin').focus();
     }
   });
 

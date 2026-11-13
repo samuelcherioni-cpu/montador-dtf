@@ -33,8 +33,11 @@
         <button class="btn btn-ghost" id="btnAnterior" type="button" title="Voltar à montagem anterior" hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg><span>Anterior</span>
         </button>
-        <button class="btn btn-primary" id="btnBaixar" type="button" disabled>
+        <button class="btn btn-ghost so-admin" id="btnBaixar" type="button" disabled hidden>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M4 19h16"/></svg><span>Baixar PNG</span>
+        </button>
+        <button class="btn btn-primary" id="btnEnviar" type="button" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3 10 14"/><path d="M21 3l-7 18-4-7-7-4z"/></svg><span>Enviar para a Zavari</span>
         </button>
       </div>
     </header>
@@ -113,9 +116,63 @@
     </div>
   </div>
 
+  <!-- Envio do pedido: dados do cliente, gerar o PNG, enviar e avisar pelo WhatsApp -->
+  <div class="modal" id="modalEnviar" hidden>
+    <div class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="tituloEnviar">
+      <div class="modal-topo">
+        <div><b id="tituloEnviar">Enviar para a Zavari</b><span class="discreto num" id="enviarResumo"></span></div>
+        <button class="fechar" type="button" data-fechar aria-label="Fechar">✕</button>
+      </div>
+      <form class="form-envio" id="formEnviar" autocomplete="on">
+        <div class="campo"><label for="envNome">Nome</label><input class="input" id="envNome" name="name" maxlength="60" required autocomplete="name"></div>
+        <div class="campo"><label for="envTelefone">Telefone (WhatsApp)</label><input class="input num" id="envTelefone" name="tel" maxlength="20" inputmode="tel" required autocomplete="tel" placeholder="(16) 90000-0000"></div>
+        <div class="campos-lado">
+          <div class="campo"><label for="envDia">Dia de buscar</label><input class="input num" id="envDia" type="date" required></div>
+          <div class="campo"><label for="envHora">Horário</label><input class="input num" id="envHora" type="time" required></div>
+        </div>
+        <div class="campo"><span class="rotulo-campo">Enviar para</span>
+          <div class="opcoes-zap" id="opcoesZap"></div>
+        </div>
+        <div class="acoes-form"><button class="btn btn-primary" type="submit" id="envConfirmar">Gerar e enviar</button></div>
+      </form>
+      <div id="envAndamento" hidden>
+        <div class="barra"><i id="envBarra"></i></div>
+        <div class="modal-info num" id="envInfo"></div>
+      </div>
+      <div id="envPronto" hidden>
+        <p class="modal-info" id="envProntoTexto"></p>
+        <div class="modal-acoes"><a class="btn btn-primary" id="envZap" target="_blank" rel="noopener">Abrir o WhatsApp e avisar</a></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Acesso do administrador: cadeado discreto no canto -->
+  <button class="admin-canto" id="btnAdmin" type="button" aria-label="Acesso do administrador" title="Administrador">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+  </button>
+  <div class="modal" id="modalAdmin" hidden>
+    <div class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="tituloAdmin">
+      <div class="modal-topo">
+        <div><b id="tituloAdmin">Administrador</b><span class="discreto" id="adminSub">PIN de 4 dígitos</span></div>
+        <button class="fechar" type="button" data-fechar aria-label="Fechar">✕</button>
+      </div>
+      <form class="form-pin" id="formAdmin" autocomplete="off">
+        <input class="input num" id="adminPin" type="password" inputmode="numeric" maxlength="4" pattern="\d{4}" aria-label="PIN" required>
+        <button class="btn btn-primary" type="submit">Entrar</button>
+      </form>
+      <div class="modal-info" id="adminMsg"></div>
+      <div id="adminAberto" hidden>
+        <div class="modal-acoes"><button class="btn btn-ghost" type="button" id="adminSair">Sair do modo administrador</button></div>
+        <b class="titulo-pedidos">Pedidos recentes</b>
+        <ul class="lista-pedidos" id="listaPedidos"></ul>
+      </div>
+    </div>
+  </div>
+
   <script src="brilho.js?v=dev"></script>
   <script src="encaixe.js?v=dev"></script>
   <script src="png.js?v=dev"></script>
+  <script src="servidor.js?v=dev"></script>
   <script src="montador.js?v=dev"></script>
 </body>
 </html>

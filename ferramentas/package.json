@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Wrangler (Cloudflare) usada pelo robô .github/workflows/publicar.yml (versões travadas no package-lock.json)",
+  "dependencies": {
+    "wrangler": "4.152.0"
+  }
+}
