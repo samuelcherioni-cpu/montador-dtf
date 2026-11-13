@@ -967,7 +967,14 @@
     const L = comprimento();
     $('enviarResumo').textContent = `57 cm × ${metrosTxt(L)} · ${est.pecas.length} ${est.pecas.length === 1 ? 'arte' : 'artes'} · PNG 300 DPI`;
     $('formEnviar').hidden = false; $('envAndamento').hidden = true; $('envPronto').hidden = true;
-    if (!$('envDia').value) { const d = new Date(); $('envDia').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+    // dia e horário já vêm preenchidos (agora + 1 h, na meia hora seguinte); o cliente só muda se quiser
+    if (!$('envDia').value || !$('envHora').value) {
+      const d = new Date(Date.now() + 60 * 60 * 1000);
+      d.setMinutes(d.getMinutes() <= 30 ? 30 : 60, 0, 0);
+      const dois = (n) => String(n).padStart(2, '0');
+      if (!$('envDia').value) $('envDia').value = `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
+      if (!$('envHora').value) $('envHora').value = `${dois(d.getHours())}:${dois(d.getMinutes())}`;
+    }
     $('modalEnviar').hidden = false;
     $('envNome').focus();
   });
