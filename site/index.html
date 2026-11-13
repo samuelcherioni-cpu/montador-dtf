@@ -126,11 +126,13 @@
       <form class="form-envio" id="formEnviar" autocomplete="on">
         <div class="campo"><label for="envNome">Nome</label><input class="input" id="envNome" name="name" maxlength="60" required autocomplete="name"></div>
         <div class="campo"><label for="envTelefone">Telefone (WhatsApp)</label><input class="input num" id="envTelefone" name="tel" maxlength="20" inputmode="tel" required autocomplete="tel" placeholder="(16) 90000-0000"></div>
-        <div class="campos-lado">
-          <div class="campo"><label for="envDia">Dia de buscar</label><input class="input num" id="envDia" type="date" required></div>
-          <div class="campo"><label for="envHora">Horário</label><input class="input num" id="envHora" type="time" required></div>
+        <div class="campo"><span class="rotulo-campo">Quando você vai buscar o DTF</span>
+          <div class="campos-lado">
+            <div class="campo"><label for="envDia">Dia da retirada</label><input class="input num" id="envDia" type="date" required></div>
+            <div class="campo"><label for="envHora">Horário da retirada</label><input class="input num" id="envHora" type="time" required></div>
+          </div>
         </div>
-        <div class="campo"><span class="rotulo-campo">Enviar para</span>
+        <div class="campo"><span class="rotulo-campo">Avisar no WhatsApp de</span>
           <div class="opcoes-zap" id="opcoesZap"></div>
         </div>
         <div class="acoes-form"><button class="btn btn-primary" type="submit" id="envConfirmar">Gerar e enviar</button></div>

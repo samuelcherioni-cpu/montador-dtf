@@ -948,8 +948,8 @@
   // O cliente não baixa o PNG: ele é gerado aqui, sobe para o armazenamento da Zavari e o cliente avisa
   // pelo WhatsApp com o link do pedido (que só abre com o PIN de administrador).
   const WHATSAPP = [
-    { rotulo: '(16) 99394-6404', numero: '5516993946404' },
-    { rotulo: '(16) 99394-6400', numero: '5516993946400' },
+    { rotulo: 'Samuel · (16) 99394-6400', numero: '5516993946400' },
+    { rotulo: 'Daniel · (16) 99394-6404', numero: '5516993946404' },
   ];
   const ERROS_ENVIO = {
     SEM_CONEXAO: 'Sem conexão com a internet. Confira e tente de novo.',
@@ -967,14 +967,8 @@
     const L = comprimento();
     $('enviarResumo').textContent = `57 cm × ${metrosTxt(L)} · ${est.pecas.length} ${est.pecas.length === 1 ? 'arte' : 'artes'} · PNG 300 DPI`;
     $('formEnviar').hidden = false; $('envAndamento').hidden = true; $('envPronto').hidden = true;
-    // dia e horário já vêm preenchidos (agora + 1 h, na meia hora seguinte); o cliente só muda se quiser
-    if (!$('envDia').value || !$('envHora').value) {
-      const d = new Date(Date.now() + 60 * 60 * 1000);
-      d.setMinutes(d.getMinutes() <= 30 ? 30 : 60, 0, 0);
-      const dois = (n) => String(n).padStart(2, '0');
-      if (!$('envDia').value) $('envDia').value = `${d.getFullYear()}-${dois(d.getMonth() + 1)}-${dois(d.getDate())}`;
-      if (!$('envHora').value) $('envHora').value = `${dois(d.getHours())}:${dois(d.getMinutes())}`;
-    }
+    // o dia da retirada começa em hoje; o horário fica para o cliente escolher
+    if (!$('envDia').value) { const d = new Date(); $('envDia').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
     $('modalEnviar').hidden = false;
     $('envNome').focus();
   });
@@ -1009,7 +1003,7 @@
         'Arquivo: ' + Servidor.linkDoPedido(r.codigo),
       ].join('\n');
       $('envZap').href = 'https://wa.me/' + zap.numero + '?text=' + encodeURIComponent(msg);
-      $('envProntoTexto').textContent = `Pedido ${r.codigo} recebido. Toque no botão para avisar pelo WhatsApp ${zap.rotulo}: a mensagem já vai pronta.`;
+      $('envProntoTexto').textContent = `Pedido ${r.codigo} recebido. Toque no botão para avisar no WhatsApp de ${zap.rotulo}: a mensagem já vai pronta.`;
       $('envAndamento').hidden = true; $('envPronto').hidden = false;
       $('tituloEnviar').textContent = 'Pedido enviado';
     } catch (err) {
