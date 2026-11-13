@@ -61,6 +61,18 @@ jobs:
         run: |
           npm ci --prefix ferramentas --no-audit --no-fund >/dev/null
           echo "$GITHUB_WORKSPACE/ferramentas/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Criar o projeto na Cloudflare na primeira vez
+        run: |
+          if ! wrangler pages project list 2>/dev/null | grep -q " $PROJETO "; then
+            wrangler pages project create "$PROJETO" --production-branch main
+          fi
+      - name: Segredo que assina a sessão de admin (gerado aqui na primeira vez; ninguém vê o valor)
+        run: |
+          if ! wrangler pages secret list --project-name "$PROJETO" 2>/dev/null | grep -q "SEGREDO_LINK"; then
+            openssl rand -hex 32 | wrangler pages secret put SEGREDO_LINK --project-name "$PROJETO" >/dev/null
+            echo "SEGREDO_LINK criado."
+          fi
+          wrangler pages secret list --project-name "$PROJETO" 2>/dev/null | grep -q "PIN_ADMIN" || echo "::warning::Falta o segredo PIN_ADMIN no projeto $PROJETO: o administrador ainda não consegue entrar."
       - name: Versão nos arquivos (o navegador busca o código novo em vez de usar o guardado)
         run: |
           v=${GITHUB_SHA::7}
