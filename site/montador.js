@@ -513,6 +513,7 @@
             <button class="btn btn-ghost btn-icone${a.travado ? ' ativo' : ''}" data-acao="travar" type="button" title="${a.travado ? 'Proporção travada' : 'Proporção livre'}" aria-label="Travar proporção">${svg(a.travado ? 'fechado' : 'aberto')}</button>
           </div>
           <div class="arte-linha">
+            <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
             <div class="qtd">
               <small>Qtd.</small>
               <button class="btn btn-ghost btn-icone" data-acao="menos" type="button" aria-label="Uma cópia a menos">${svg('menos')}</button>
@@ -521,7 +522,6 @@
             </div>
             <button class="btn btn-ghost btn-icone${a.giro !== 'auto' ? ' ativo' : ''}" data-acao="girar" type="button" title="Girar 90° (passa a valer o giro escolhido à mão)" aria-label="Girar 90°">${svg('girar')}</button>
             <button class="btn btn-ghost btn-icone" data-acao="duplicar" type="button" title="Duplicar" aria-label="Duplicar">${svg('duplicar')}</button>
-            <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
           </div>
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
         </div>
