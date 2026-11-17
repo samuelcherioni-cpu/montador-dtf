@@ -230,7 +230,7 @@ button:disabled { cursor: default; opacity: 0.5; }
   .mini { width: 60px; height: 60px; }
   .campos { grid-template-columns: 1fr; }
 }
-/* lixeira, quantidade, girar e duplicar numa linha só (no computador e a 375 px) */
+/* quantidade, girar, duplicar e lixeira numa linha só (no computador e a 375 px) */
 .arte-linha { gap: 4px; flex-wrap: nowrap; }
 .arte-linha .btn-icone { width: 30px; height: 30px; flex: none; }
 .qtd .input { width: 42px; }
