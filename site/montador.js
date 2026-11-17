@@ -455,10 +455,21 @@
   function removerArte(arte) {
     est.pecas = est.pecas.filter((p) => p.arte !== arte.id);
     est.artes = est.artes.filter((a) => a !== arte);
-    URL.revokeObjectURL(arte.url);
-    URL.revokeObjectURL(arte.previa);
-    if (arte.mini && arte.mini.close) arte.mini.close();
+    // original e duplicadas dividem a mesma imagem: só libera quando nenhuma outra usa
+    if (!est.artes.some((o) => o.previa === arte.previa)) {
+      URL.revokeObjectURL(arte.url);
+      URL.revokeObjectURL(arte.previa);
+      if (arte.mini && arte.mini.close) arte.mini.close();
+    }
     reorganizar();
+  }
+
+  // Duplicar: a mesma imagem entra de novo na lista (logo abaixo), com quantidade 1, para usar em outro
+  // tamanho sem subir o arquivo outra vez. Divide arquivo, prévia e formato já calculado com a original.
+  function duplicarArte(arte) {
+    const copia = { ...arte, id: 'a' + ++seq, qtd: 1, giro: 'auto' };
+    est.artes.splice(est.artes.indexOf(arte) + 1, 0, copia);
+    reorganizar(new Set([novaPeca(copia).id]));
   }
 
   // ---------- lista de artes ----------
@@ -467,6 +478,7 @@
     mais: '<path d="M6 12h12M12 6v12"/>',
         girar: '<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/>',
     lixo: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+    duplicar: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 9V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h3"/>',
     fechado: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     aberto: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.5-2"/>',
   };
@@ -508,6 +520,7 @@
               <button class="btn btn-ghost btn-icone" data-acao="mais" type="button" aria-label="Uma cópia a mais">${svg('mais')}</button>
             </div>
             <button class="btn btn-ghost btn-icone${a.giro !== 'auto' ? ' ativo' : ''}" data-acao="girar" type="button" title="Girar 90° (passa a valer o giro escolhido à mão)" aria-label="Girar 90°">${svg('girar')}</button>
+            <button class="btn btn-ghost btn-icone" data-acao="duplicar" type="button" title="Duplicar" aria-label="Duplicar">${svg('duplicar')}</button>
             <button class="btn btn-ghost btn-icone perigo" data-acao="remover" type="button" title="Remover arte" aria-label="Remover arte">${svg('lixo')}</button>
           </div>
           ${selos.length ? `<div class="selos">${selos.join('')}</div>` : ''}
@@ -531,6 +544,7 @@
     else if (acao === 'girar') girarArte(arte);
     else if (acao === 'auto') { arte.giro = 'auto'; reorganizar(); }
     else if (acao === 'remover') removerArte(arte);
+    else if (acao === 'duplicar') duplicarArte(arte);
     desenharLista();
     desenhar();
   });

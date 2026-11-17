@@ -229,6 +229,10 @@ button:disabled { cursor: default; opacity: 0.5; }
   .arte { grid-template-columns: 60px 1fr; gap: 10px; padding: 12px; }
   .mini { width: 60px; height: 60px; }
   .campos { grid-template-columns: 1fr; }
+  /* quantidade, girar, duplicar e lixeira numa linha só a 375 px */
+  .arte-linha { gap: 4px; }
+  .arte-linha .btn-icone { width: 30px; height: 30px; }
+  .qtd .input { width: 42px; }
 }
 
 /* Envio do pedido */
