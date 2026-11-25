@@ -713,6 +713,20 @@
     if (!$('modalBaixar').hidden) fecharModal();
     if (!$('modalEnviar').hidden) fecharEnvio();
     if (!$('modalAdmin').hidden) $('modalAdmin').hidden = true;
+    if (!$('modalTutorial').hidden) fecharTutorial();
+  });
+
+  // ---------- tutorial em vídeo ----------
+  // O vídeo só é baixado quando a pessoa abre (o site continua leve) e para ao fechar a janela.
+  function fecharTutorial() { $('videoTutorial').pause(); $('modalTutorial').hidden = true; }
+  $('btnTutorial').addEventListener('click', () => {
+    const v = $('videoTutorial');
+    if (!v.getAttribute('src')) v.src = 'midia/como-usar.mp4';
+    $('modalTutorial').hidden = false;
+    v.play().catch(() => {}); // alguns celulares pedem o toque no play
+  });
+  $('modalTutorial').addEventListener('click', (e) => {
+    if (e.target === $('modalTutorial') || e.target.closest('[data-fechar]')) fecharTutorial();
   });
 
   // ---------- zoom ----------

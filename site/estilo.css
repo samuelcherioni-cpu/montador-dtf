@@ -96,6 +96,21 @@ button:disabled { cursor: default; opacity: 0.5; }
 .marca b { display: block; font-size: 1.05rem; font-weight: 700; letter-spacing: -0.01em; }
 .marca span { display: block; font-size: 0.76rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .acoes { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+/* tutorial: no meio da barra de cima, em destaque leve (turquesa) */
+.topbar .marca { flex: 0 1 auto; }
+.btn-tutorial { flex: none; margin: 0 auto; color: #8fdcf0; border-color: rgba(25, 182, 210, 0.45); background: rgba(25, 182, 210, 0.10); }
+.btn-tutorial:hover { background: rgba(25, 182, 210, 0.18); }
+/* tela média: só o ícone de play (o texto volta no celular, em linha própria) */
+@media (max-width: 1300px) and (min-width: 561px) {
+  .btn-tutorial { width: 40px; padding: 0; justify-content: center; }
+  .btn-tutorial span { display: none; }
+}
+@media (max-width: 560px) {
+  .btn-tutorial { order: 3; width: 100%; justify-content: center; margin: 0; }
+  .topbar .acoes { order: 4; }
+}
+.modal-card.modal-video { width: min(960px, 100%); }
+.modal-video video { display: block; width: 100%; margin-top: 12px; border-radius: 12px; background: #000; aspect-ratio: 1922 / 982; max-height: calc(100dvh - 140px); object-fit: contain; }
 
 .corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: 370px 1fr; gap: 14px; }
 .lado { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 2px 4px 8px 2px; }

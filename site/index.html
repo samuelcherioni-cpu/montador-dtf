@@ -20,6 +20,9 @@
     <header class="topbar glass brilho">
       <div class="logos"><img src="logo-vantti.png" alt="Vantti"><img src="logo-zavari.png" alt="Zavari"></div>
       <div class="marca"><b class="grad-text">Fila DTF</b><span>Zavari · Vantti · filme de 57 cm · PNG 300 DPI</span></div>
+      <button class="btn btn-ghost btn-tutorial" id="btnTutorial" type="button" title="Vídeo de 1 minuto mostrando o passo a passo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg><span>Como usar o sistema</span>
+      </button>
       <div class="acoes">
         <button class="btn btn-ghost" id="btnAdicionar" type="button" title="Adicionar artes (PNG ou JPG)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8M8 12h8"/></svg><span>Adicionar artes</span>
@@ -117,6 +120,17 @@
   </div>
 
   <!-- Envio do pedido: dados do cliente, gerar o PNG, enviar e avisar pelo WhatsApp -->
+  <!-- Tutorial: vídeo guardado no próprio site (nenhum link para fora) -->
+  <div class="modal" id="modalTutorial" hidden>
+    <div class="modal-card glass modal-video" role="dialog" aria-modal="true" aria-labelledby="tituloTutorial">
+      <div class="modal-topo">
+        <div><b id="tituloTutorial">Como usar o sistema</b><span class="discreto">Passo a passo da montagem e do envio</span></div>
+        <button class="fechar" type="button" data-fechar aria-label="Fechar">✕</button>
+      </div>
+      <video id="videoTutorial" controls playsinline preload="none" poster="midia/como-usar.jpg"></video>
+    </div>
+  </div>
+
   <div class="modal" id="modalEnviar" hidden>
     <div class="modal-card glass" role="dialog" aria-modal="true" aria-labelledby="tituloEnviar">
       <div class="modal-topo">
