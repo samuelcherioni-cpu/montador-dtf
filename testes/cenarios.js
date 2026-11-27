@@ -127,11 +127,12 @@ function girar90(G) { // horário, como na tela
   // Miolo fechado (o meio de um círculo, de um anel, de uma moldura) conta como ocupado: nada pode ser
   // encaixado lá dentro, porque não daria para recortar uma arte separada da outra. Vãos abertos para
   // fora (o meio de um "U", o canto entre um rosto e um raio) continuam livres.
-  // cheio: Uint8Array cols x linhas (1 = tem desenho). Falhas de até ~4 mm no contorno contam como fechadas.
-  function fecharMiolo(cheio, cols, linhas) {
-    const R = 2, N = cols * linhas;
-    // 1) contorno engordado em R (para tapar falhas pequenas)
-    const tmp = new Uint8Array(N), gordo = new Uint8Array(N);
+  // Em várias escalas: falhas de até 4 mm no contorno sempre contam como fechadas; falhas maiores (até
+  // ~24 mm, como o espaço entre palavras de um texto em círculo) só fecham miolos grandes, com o lado menor
+  // pelo menos 6 vezes a falha. Assim um anel de letras fecha e a boca de um "U" ou de um "C" fica aberta.
+  // cheio: Uint8Array cols x linhas (1 = tem desenho).
+  function engordar(cheio, cols, linhas, R) {
+    const N = cols * linhas, tmp = new Uint8Array(N), gordo = new Uint8Array(N);
     for (let y = 0; y < linhas; y++) {
       let ult = -1e9; for (let x = 0; x < cols; x++) { if (cheio[y * cols + x]) ult = x; if (x - ult <= R) tmp[y * cols + x] = 1; }
       ult = 1e9; for (let x = cols - 1; x >= 0; x--) { if (cheio[y * cols + x]) ult = x; if (ult - x <= R) tmp[y * cols + x] = 1; }
@@ -140,7 +141,11 @@ function girar90(G) { // horário, como na tela
       let ult = -1e9; for (let y = 0; y < linhas; y++) { if (tmp[y * cols + x]) ult = y; if (y - ult <= R) gordo[y * cols + x] = 1; }
       ult = 1e9; for (let y = linhas - 1; y >= 0; y--) { if (tmp[y * cols + x]) ult = y; if (ult - y <= R) gordo[y * cols + x] = 1; }
     }
-    // 2) tudo que é alcançável pelo lado de fora (a partir da borda da caixa) sem atravessar o contorno
+    return gordo;
+  }
+  // miolo (não desenho, não alcançável de fora) com contorno engordado em R
+  function mioloComR(cheio, cols, linhas, R) {
+    const N = cols * linhas, gordo = engordar(cheio, cols, linhas, R);
     const fora = new Uint8Array(N), fila = new Int32Array(N);
     let ini = 0, fim = 0;
     const entra = (i) => { if (!gordo[i] && !fora[i]) { fora[i] = 1; fila[fim++] = i; } };
@@ -151,21 +156,48 @@ function girar90(G) { // horário, como na tela
       if (x > 0) entra(i - 1); if (x < cols - 1) entra(i + 1);
       if (i >= cols) entra(i - cols); if (i < N - cols) entra(i + cols);
     }
-    // 3) devolve ao lado de fora a faixa de R junto do contorno (só serviu para tapar as falhas)
     let borda = fora;
     for (let k = 0; k < R; k++) {
       const nova = borda.slice();
       for (let i = 0; i < N; i++) {
         if (borda[i] || cheio[i]) continue;
         const x = i % cols;
-        if ((x > 0 && borda[i - 1]) || (x < cols - 1 && borda[i + 1]) || (i >= cols && borda[i - cols]) || (i < N - cols && borda[i + cols])) nova[i] = 1;
+        const e = x > 0, d = x < cols - 1, c = i >= cols, b = i < N - cols;
+        if ((e && borda[i - 1]) || (d && borda[i + 1]) || (c && borda[i - cols]) || (b && borda[i + cols]) ||
+          (e && c && borda[i - cols - 1]) || (d && c && borda[i - cols + 1]) || (e && b && borda[i + cols - 1]) || (d && b && borda[i + cols + 1])) nova[i] = 1;
       }
       borda = nova;
     }
-    // 4) o que não é desenho nem lado de fora é miolo fechado: passa a contar como ocupado
-    for (let i = 0; i < N; i++) if (!cheio[i] && !borda[i]) cheio[i] = 1;
+    const miolo = new Uint8Array(N);
+    for (let i = 0; i < N; i++) if (!cheio[i] && !borda[i]) miolo[i] = 1;
+    return miolo;
+  }
+  // Escalas: falha de até 2R mm no contorno; com R maior, o miolo precisa ser grande (lado menor >= FATOR x falha)
+  const ESCALAS = [2, 4, 6, 8, 10, 12];
+  const FATOR = 6;
+  function fecharMiolo(cheio, cols, linhas) {
+    const N = cols * linhas, marcar = new Uint8Array(N);
+    for (const R of ESCALAS) {
+      const m = mioloComR(cheio, cols, linhas, R);
+      const visto = new Uint8Array(N), fila = new Int32Array(N);
+      for (let s = 0; s < N; s++) {
+        if (!m[s] || visto[s]) continue;
+        let ini = 0, fim = 0; fila[fim++] = s; visto[s] = 1;
+        let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1;
+        while (ini < fim) {
+          const i = fila[ini++], x = i % cols, y = (i - x) / cols;
+          if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+          const viz = [x > 0 ? i - 1 : -1, x < cols - 1 ? i + 1 : -1, i >= cols ? i - cols : -1, i < N - cols ? i + cols : -1];
+          for (const j of viz) if (j >= 0 && m[j] && !visto[j]) { visto[j] = 1; fila[fim++] = j; }
+        }
+        const lado = Math.min(x1 - x0 + 1, y1 - y0 + 1);
+        if (R === 2 || lado >= FATOR * 2 * R) for (let k = 0; k < fim; k++) marcar[fila[k]] = 1;
+      }
+    }
+    for (let i = 0; i < N; i++) if (marcar[i]) cheio[i] = 1;
     return cheio;
   }
+
 
 function perfil(G) {
   // miolo fechado conta como ocupado (como na tela); a área conta só o desenho de verdade
